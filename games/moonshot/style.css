@@ -1,0 +1,376 @@
+/* Moonshot — neon midnight launch theme. All UI lives inside the SDK sandbox. */
+
+.ms-root {
+  --ms-bg: #05081f;
+  --ms-panel: rgba(16, 22, 71, 0.72);
+  --ms-line: rgba(56, 225, 255, 0.22);
+  --ms-text: #eaf6ff;
+  --ms-dim: rgba(234, 246, 255, 0.62);
+  --ms-cyan: #38e1ff;
+  --ms-gold: #ffd23f;
+  --ms-red: #ff4d5e;
+  --ms-green: #3ddc84;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  background: var(--ms-bg);
+  color: var(--ms-text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The runtime floats its toolbar over the bottom of the game frame. */
+  padding-bottom: 64px;
+}
+
+.ms-root button {
+  font: inherit;
+  color: inherit;
+  background: rgba(56, 225, 255, 0.1);
+  border: 1px solid var(--ms-line);
+  border-radius: 10px;
+  padding: 0.45em 0.8em;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.08s ease, filter 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ms-root button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ms-root button:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+
+.ms-root button:not(:disabled):active {
+  transform: scale(0.95);
+  filter: brightness(1.22);
+}
+
+.ms-root button:focus-visible {
+  outline: 2px solid var(--ms-cyan);
+  outline-offset: 2px;
+}
+
+/* top bar */
+.ms-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.55em 0.75em;
+  border-bottom: 1px solid var(--ms-line);
+  background: rgba(5, 8, 31, 0.85);
+  z-index: 3;
+}
+
+.ms-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  font-size: 0.95em;
+  letter-spacing: 0.06em;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.ms-logo { font-size: 1.25em; }
+
+.ms-mode {
+  font-size: 0.68em;
+  color: var(--ms-dim);
+  border: 1px solid var(--ms-line);
+  border-radius: 999px;
+  padding: 0.25em 0.6em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ms-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.ms-pilot {
+  font-size: 0.72em;
+  color: var(--ms-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22vw;
+}
+
+.ms-top-actions button {
+  padding: 0.3em 0.55em;
+  font-size: 0.95em;
+}
+
+/* stage */
+.ms-stage {
+  position: relative;
+  flex: 0 0 auto;
+  aspect-ratio: 3 / 3.4;
+  max-height: 52vh;
+  min-height: 300px;
+  background: #05081f;
+  border-bottom: 1px solid var(--ms-line);
+}
+
+.ms-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: pointer;
+}
+
+.ms-mult-wrap {
+  position: absolute;
+  top: 6%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  pointer-events: none;
+}
+
+.ms-mult {
+  font-size: clamp(2.4em, 11vw, 3.6em);
+  font-weight: 900;
+  color: var(--ms-cyan);
+  text-shadow: 0 0 24px currentColor, 0 2px 0 rgba(0, 0, 0, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.ms-slowmo {
+  display: block;
+  margin-top: 0.3em;
+  font-size: 0.85em;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--ms-gold);
+  animation: ms-pulse 0.35s ease-in-out infinite alternate;
+}
+
+@keyframes ms-pulse {
+  from { transform: scale(1); opacity: 0.75; }
+  to { transform: scale(1.12); opacity: 1; }
+}
+
+.ms-balances {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.45em 0.75em;
+  font-size: 0.82em;
+  background: linear-gradient(transparent, rgba(5, 8, 31, 0.88));
+  pointer-events: none;
+}
+
+.ms-balances strong { color: var(--ms-gold); }
+
+.ms-burned strong { color: #ff8a5e; }
+
+.ms-burned {
+  display: inline-block;
+  animation: ms-flick 0.5s ease-out;
+}
+
+@keyframes ms-flick {
+  0% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+/* controls */
+.ms-controls {
+  padding: 0.7em 0.85em 0.4em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55em;
+}
+
+.ms-stakes {
+  display: flex;
+  gap: 0.45em;
+  align-items: center;
+}
+
+.ms-chip-active {
+  background: rgba(56, 225, 255, 0.28);
+  border-color: var(--ms-cyan);
+  box-shadow: 0 0 12px rgba(56, 225, 255, 0.35);
+}
+
+.ms-stake-input {
+  width: 4.5em;
+  font: inherit;
+  color: var(--ms-text);
+  background: rgba(5, 8, 31, 0.6);
+  border: 1px solid var(--ms-line);
+  border-radius: 10px;
+  padding: 0.45em 0.6em;
+  text-align: center;
+}
+
+.ms-primary {
+  font-size: 1.25em;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.7em;
+  border-radius: 14px;
+  border: 1px solid var(--ms-cyan);
+  background: linear-gradient(180deg, rgba(56, 225, 255, 0.32), rgba(56, 225, 255, 0.12));
+  box-shadow: 0 0 22px rgba(56, 225, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.ms-cashout {
+  border-color: var(--ms-gold);
+  background: linear-gradient(180deg, rgba(255, 210, 63, 0.4), rgba(255, 210, 63, 0.14));
+  box-shadow: 0 0 26px rgba(255, 210, 63, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  animation: ms-cashpulse 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes ms-cashpulse {
+  from {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow: 0 0 22px rgba(255, 210, 63, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  to {
+    transform: scale(1.035);
+    filter: brightness(1.16);
+    box-shadow: 0 0 40px rgba(255, 210, 63, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  }
+}
+
+.ms-wait {
+  text-align: center;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: var(--ms-cyan);
+  padding: 0.7em;
+}
+
+.ms-result {
+  margin: 0;
+  text-align: center;
+  font-weight: 800;
+  padding: 0.55em;
+  border-radius: 10px;
+}
+
+.ms-win {
+  color: #0a2415;
+  background: linear-gradient(180deg, #7dffb0, #3ddc84);
+}
+
+.ms-burn {
+  color: #ffd9d9;
+  background: linear-gradient(180deg, rgba(255, 77, 94, 0.35), rgba(255, 77, 94, 0.15));
+  border: 1px solid rgba(255, 77, 94, 0.5);
+}
+
+.ms-message, .ms-hint {
+  margin: 0;
+  font-size: 0.75em;
+  color: var(--ms-dim);
+  text-align: center;
+}
+
+/* panels */
+.ms-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6em;
+  padding: 0.4em 0.85em 0.85em;
+}
+
+.ms-panel {
+  background: var(--ms-panel);
+  border: 1px solid var(--ms-line);
+  border-radius: 12px;
+  padding: 0.6em 0.7em;
+}
+
+.ms-panel h3 {
+  margin: 0 0 0.5em;
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ms-dim);
+}
+
+.ms-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+}
+
+.ms-empty { font-size: 0.78em; color: var(--ms-dim); }
+
+.ms-pill {
+  font-size: 0.74em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+  padding: 0.25em 0.55em;
+  border: 1px solid;
+}
+
+.ms-pill-green { color: var(--ms-green); border-color: rgba(61, 220, 132, 0.5); background: rgba(61, 220, 132, 0.1); }
+.ms-pill-red { color: var(--ms-red); border-color: rgba(255, 77, 94, 0.5); background: rgba(255, 77, 94, 0.1); }
+
+.ms-stats { margin: 0; display: flex; flex-direction: column; gap: 0.3em; }
+.ms-stats > div { display: flex; justify-content: space-between; font-size: 0.8em; }
+.ms-stats dt { color: var(--ms-dim); }
+.ms-stats dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.ms-foot {
+  padding: 0 0.85em 1em;
+  font-size: 0.68em;
+  color: var(--ms-dim);
+  text-align: center;
+}
+
+.ms-foot p { margin: 0; }
+
+.ms-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1em;
+  height: 100%;
+  min-height: 320px;
+  background: var(--ms-bg);
+  color: var(--ms-text);
+  font-size: 1.05em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-cashout, .ms-slowmo, .ms-burned { animation: none; }
+}
+
+/* In-app reduced-motion toggle mirrors the OS-level media query. */
+.ms-reduced-motion .ms-cashout,
+.ms-reduced-motion .ms-slowmo,
+.ms-reduced-motion .ms-burned { animation: none; }
+.ms-reduced-motion button { transition: none; }
+
+@media (max-width: 380px) {
+  .ms-panels { grid-template-columns: 1fr; }
+  .ms-pilot { display: none; }
+}

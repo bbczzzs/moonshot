@@ -1,0 +1,5 @@
+/* Portrait-leaning layout for the Moonshot crash game (mobile-first). */
+:root {
+  --rf-game-max-width: 480px;
+  --rf-game-aspect-ratio: 3 / 4;
+}
