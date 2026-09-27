@@ -15,6 +15,7 @@ import {
 } from "./economy";
 import { MoonshotAudio } from "./audio";
 import { MoonshotScene, type FrameState } from "./scene";
+import { loadFriendPilot, type PilotSprite } from "./pilot";
 import "./style.css";
 
 type Phase = "idle" | "countdown" | "flying" | "cashed" | "crashed";
@@ -39,6 +40,8 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
   const ledgerRef = useRef<Ledger | null>(null);
   const pausedRef = useRef(paused);
   const epoch = useRef(0);
+  const pilotEpoch = useRef(0);
+  const pilotRef = useRef<PilotSprite | null>(null);
   const stakeInputRef = useRef("10");
 
   // Hot-loop mutable state (refs avoid re-render churn at 60fps).
@@ -82,6 +85,24 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
   };
 
   // ---- lifecycle ----
+  // The pilot is the player's ACTUAL selected Friend: its canonical on-chain
+  // 16x16 sprite, voxel-rendered in the scene. This never blocks the session
+  // handshake — if the chain read is unavailable, a deterministic generative
+  // pixel pilot is used instead.
+  useEffect(() => {
+    const version = ++pilotEpoch.current;
+    pilotRef.current = null;
+    sceneRef.current?.setPilot(null);
+    loadFriendPilot(friendId).then((pilot) => {
+      if (version !== pilotEpoch.current) return;
+      pilotRef.current = pilot;
+      sceneRef.current?.setPilot(pilot);
+    });
+    return () => {
+      pilotEpoch.current++;
+    };
+  }, [friendId]);
+
   // Session handshake first: the runtime only marks the game ready (and hides
   // its loading state) once the child calls client.read(). This must NOT wait
   // for the canvas — the canvas only exists after `ready` flips true.
@@ -119,6 +140,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     sceneRef.current = scene;
     audioRef.current = audio;
     ledgerRef.current = ledger;
+    if (pilotRef.current) scene.setPilot(pilotRef.current);
     sim.current.stake = 10n * ONE_RF;
     setBalance(ledger.balance);
     setStats({ ...ledger.stats });

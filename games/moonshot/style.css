@@ -1,15 +1,24 @@
-/* Moonshot — neon midnight launch theme. All UI lives inside the SDK sandbox. */
+/* Moonshot — voxel / chunky-pixel-art theme. All UI lives inside the SDK sandbox. */
+@font-face {
+  font-family: "Press Start 2P";
+  src: url("./press-start-2p.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 .ms-root {
   --ms-bg: #05081f;
-  --ms-panel: rgba(16, 22, 71, 0.72);
-  --ms-line: rgba(56, 225, 255, 0.22);
+  --ms-panel: #101647;
+  --ms-line: #38e1ff;
   --ms-text: #eaf6ff;
   --ms-dim: rgba(234, 246, 255, 0.62);
   --ms-cyan: #38e1ff;
   --ms-gold: #ffd23f;
   --ms-red: #ff4d5e;
   --ms-green: #3ddc84;
+  --ms-ink: #0a0e24;
+  --ms-pixel: "Press Start 2P", "Courier New", monospace;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -21,18 +30,23 @@
   overscroll-behavior: contain;
   /* The runtime floats its toolbar over the bottom of the game frame. */
   padding-bottom: 64px;
+  /* subtle pixel-grid backdrop */
+  background-image:
+    linear-gradient(rgba(56, 225, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 225, 255, 0.03) 1px, transparent 1px);
+  background-size: 12px 12px;
 }
 
 .ms-root button {
   font: inherit;
   color: inherit;
-  background: rgba(56, 225, 255, 0.1);
-  border: 1px solid var(--ms-line);
-  border-radius: 10px;
+  background: #16205c;
+  border: 3px solid var(--ms-ink);
+  border-radius: 2px;
+  box-shadow: 4px 4px 0 var(--ms-ink);
   padding: 0.45em 0.8em;
   cursor: pointer;
   touch-action: manipulation;
-  transition: transform 0.08s ease, filter 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ms-root button:disabled {
@@ -41,16 +55,17 @@
 }
 
 .ms-root button:not(:disabled):hover {
-  filter: brightness(1.1);
+  filter: brightness(1.12);
 }
 
 .ms-root button:not(:disabled):active {
-  transform: scale(0.95);
-  filter: brightness(1.22);
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--ms-ink);
+  filter: brightness(1.2);
 }
 
 .ms-root button:focus-visible {
-  outline: 2px solid var(--ms-cyan);
+  outline: 3px solid var(--ms-cyan);
   outline-offset: 2px;
 }
 
@@ -61,8 +76,8 @@
   justify-content: space-between;
   gap: 0.5em;
   padding: 0.55em 0.75em;
-  border-bottom: 1px solid var(--ms-line);
-  background: rgba(5, 8, 31, 0.85);
+  border-bottom: 3px solid var(--ms-ink);
+  background: #0a0e2e;
   z-index: 3;
 }
 
@@ -70,10 +85,16 @@
   display: flex;
   align-items: center;
   gap: 0.45em;
-  font-size: 0.95em;
-  letter-spacing: 0.06em;
   min-width: 0;
   flex-shrink: 1;
+}
+
+.ms-brand strong {
+  font-family: var(--ms-pixel);
+  font-size: 0.8em;
+  letter-spacing: 0.04em;
+  color: var(--ms-gold);
+  text-shadow: 2px 2px 0 var(--ms-ink);
 }
 
 .ms-logo { font-size: 1.25em; }
@@ -81,8 +102,9 @@
 .ms-mode {
   font-size: 0.68em;
   color: var(--ms-dim);
-  border: 1px solid var(--ms-line);
-  border-radius: 999px;
+  border: 2px solid var(--ms-ink);
+  background: #16205c;
+  border-radius: 2px;
   padding: 0.25em 0.6em;
   white-space: nowrap;
   overflow: hidden;
@@ -100,8 +122,9 @@
 }
 
 .ms-pilot {
-  font-size: 0.72em;
-  color: var(--ms-dim);
+  font-family: var(--ms-pixel);
+  font-size: 0.5em;
+  color: var(--ms-cyan);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -111,6 +134,12 @@
 .ms-top-actions button {
   padding: 0.3em 0.55em;
   font-size: 0.95em;
+  box-shadow: 3px 3px 0 var(--ms-ink);
+}
+
+.ms-top-actions button:not(:disabled):active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--ms-ink);
 }
 
 /* stage */
@@ -121,7 +150,7 @@
   max-height: 52vh;
   min-height: 300px;
   background: #05081f;
-  border-bottom: 1px solid var(--ms-line);
+  border-bottom: 3px solid var(--ms-ink);
 }
 
 .ms-canvas {
@@ -131,6 +160,7 @@
   height: 100%;
   display: block;
   cursor: pointer;
+  image-rendering: pixelated;
 }
 
 .ms-mult-wrap {
@@ -143,21 +173,22 @@
 }
 
 .ms-mult {
-  font-size: clamp(2.4em, 11vw, 3.6em);
-  font-weight: 900;
+  font-family: var(--ms-pixel);
+  font-size: clamp(1.5em, 7vw, 2.4em);
   color: var(--ms-cyan);
-  text-shadow: 0 0 24px currentColor, 0 2px 0 rgba(0, 0, 0, 0.6);
+  text-shadow: 3px 3px 0 var(--ms-ink);
   font-variant-numeric: tabular-nums;
 }
 
 .ms-slowmo {
   display: block;
-  margin-top: 0.3em;
-  font-size: 0.85em;
-  font-weight: 800;
-  letter-spacing: 0.2em;
+  margin-top: 0.6em;
+  font-family: var(--ms-pixel);
+  font-size: 0.7em;
+  letter-spacing: 0.1em;
   color: var(--ms-gold);
-  animation: ms-pulse 0.35s ease-in-out infinite alternate;
+  text-shadow: 2px 2px 0 var(--ms-ink);
+  animation: ms-pulse 0.35s steps(2) infinite alternate;
 }
 
 @keyframes ms-pulse {
@@ -185,7 +216,7 @@
 
 .ms-burned {
   display: inline-block;
-  animation: ms-flick 0.5s ease-out;
+  animation: ms-flick 0.5s steps(3) ease-out;
 }
 
 @keyframes ms-flick {
@@ -207,60 +238,66 @@
   align-items: center;
 }
 
+.ms-chip {
+  font-family: var(--ms-pixel);
+  font-size: 0.62em;
+}
+
 .ms-chip-active {
-  background: rgba(56, 225, 255, 0.28);
-  border-color: var(--ms-cyan);
-  box-shadow: 0 0 12px rgba(56, 225, 255, 0.35);
+  background: var(--ms-cyan);
+  color: var(--ms-ink);
+  border-color: var(--ms-ink);
+  box-shadow: 4px 4px 0 var(--ms-ink), inset -3px -3px 0 rgba(0, 0, 0, 0.25), inset 3px 3px 0 rgba(255, 255, 255, 0.45);
 }
 
 .ms-stake-input {
   width: 4.5em;
   font: inherit;
   color: var(--ms-text);
-  background: rgba(5, 8, 31, 0.6);
-  border: 1px solid var(--ms-line);
-  border-radius: 10px;
+  background: #0a0e2e;
+  border: 3px solid var(--ms-ink);
+  box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.45);
+  border-radius: 2px;
   padding: 0.45em 0.6em;
   text-align: center;
 }
 
 .ms-primary {
-  font-size: 1.25em;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  padding: 0.7em;
-  border-radius: 14px;
-  border: 1px solid var(--ms-cyan);
-  background: linear-gradient(180deg, rgba(56, 225, 255, 0.32), rgba(56, 225, 255, 0.12));
-  box-shadow: 0 0 22px rgba(56, 225, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  font-family: var(--ms-pixel);
+  font-size: 0.95em;
+  letter-spacing: 0.04em;
+  padding: 0.9em 0.7em;
+  border-radius: 2px;
+  border: 3px solid var(--ms-ink);
+  background: var(--ms-cyan);
+  color: var(--ms-ink);
+  box-shadow: 5px 5px 0 var(--ms-ink), inset -4px -4px 0 rgba(0, 0, 0, 0.22), inset 4px 4px 0 rgba(255, 255, 255, 0.5);
+  text-shadow: none;
 }
 
 .ms-cashout {
-  border-color: var(--ms-gold);
-  background: linear-gradient(180deg, rgba(255, 210, 63, 0.4), rgba(255, 210, 63, 0.14));
-  box-shadow: 0 0 26px rgba(255, 210, 63, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  animation: ms-cashpulse 0.7s ease-in-out infinite alternate;
+  background: var(--ms-gold);
+  animation: ms-cashpulse 0.7s steps(2) infinite alternate;
 }
 
 @keyframes ms-cashpulse {
   from {
-    transform: scale(1);
+    transform: translate(0, 0);
     filter: brightness(1);
-    box-shadow: 0 0 22px rgba(255, 210, 63, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   }
   to {
-    transform: scale(1.035);
-    filter: brightness(1.16);
-    box-shadow: 0 0 40px rgba(255, 210, 63, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    transform: translate(0, 2px);
+    filter: brightness(1.14);
   }
 }
 
 .ms-wait {
   text-align: center;
-  font-weight: 800;
-  letter-spacing: 0.25em;
+  font-family: var(--ms-pixel);
+  font-size: 0.75em;
+  letter-spacing: 0.12em;
   color: var(--ms-cyan);
+  text-shadow: 2px 2px 0 var(--ms-ink);
   padding: 0.7em;
 }
 
@@ -269,18 +306,20 @@
   text-align: center;
   font-weight: 800;
   padding: 0.55em;
-  border-radius: 10px;
+  border-radius: 2px;
+  border: 3px solid var(--ms-ink);
+  box-shadow: 4px 4px 0 var(--ms-ink);
 }
 
 .ms-win {
   color: #0a2415;
-  background: linear-gradient(180deg, #7dffb0, #3ddc84);
+  background: #3ddc84;
+  box-shadow: 4px 4px 0 var(--ms-ink), inset -4px -4px 0 rgba(0, 0, 0, 0.18), inset 4px 4px 0 rgba(255, 255, 255, 0.4);
 }
 
 .ms-burn {
   color: #ffd9d9;
-  background: linear-gradient(180deg, rgba(255, 77, 94, 0.35), rgba(255, 77, 94, 0.15));
-  border: 1px solid rgba(255, 77, 94, 0.5);
+  background: #5c1620;
 }
 
 .ms-message, .ms-hint {
@@ -300,17 +339,19 @@
 
 .ms-panel {
   background: var(--ms-panel);
-  border: 1px solid var(--ms-line);
-  border-radius: 12px;
+  border: 3px solid var(--ms-ink);
+  box-shadow: 4px 4px 0 var(--ms-ink);
+  border-radius: 2px;
   padding: 0.6em 0.7em;
 }
 
 .ms-panel h3 {
-  margin: 0 0 0.5em;
-  font-size: 0.72em;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--ms-dim);
+  margin: 0 0 0.6em;
+  font-family: var(--ms-pixel);
+  font-size: 0.55em;
+  letter-spacing: 0.08em;
+  color: var(--ms-gold);
+  text-shadow: 2px 2px 0 var(--ms-ink);
 }
 
 .ms-history {
@@ -322,16 +363,16 @@
 .ms-empty { font-size: 0.78em; color: var(--ms-dim); }
 
 .ms-pill {
-  font-size: 0.74em;
-  font-weight: 700;
+  font-family: var(--ms-pixel);
+  font-size: 0.52em;
   font-variant-numeric: tabular-nums;
-  border-radius: 999px;
-  padding: 0.25em 0.55em;
-  border: 1px solid;
+  border-radius: 2px;
+  padding: 0.4em 0.55em;
+  border: 2px solid var(--ms-ink);
 }
 
-.ms-pill-green { color: var(--ms-green); border-color: rgba(61, 220, 132, 0.5); background: rgba(61, 220, 132, 0.1); }
-.ms-pill-red { color: var(--ms-red); border-color: rgba(255, 77, 94, 0.5); background: rgba(255, 77, 94, 0.1); }
+.ms-pill-green { color: #0a2415; background: var(--ms-green); }
+.ms-pill-red { color: #ffd9d9; background: #a32a38; }
 
 .ms-stats { margin: 0; display: flex; flex-direction: column; gap: 0.3em; }
 .ms-stats > div { display: flex; justify-content: space-between; font-size: 0.8em; }
@@ -357,7 +398,10 @@
   min-height: 320px;
   background: var(--ms-bg);
   color: var(--ms-text);
-  font-size: 1.05em;
+  font-family: var(--ms-pixel);
+  font-size: 0.8em;
+  text-align: center;
+  padding: 1em;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -373,4 +417,5 @@
 @media (max-width: 380px) {
   .ms-panels { grid-template-columns: 1fr; }
   .ms-pilot { display: none; }
+  .ms-primary { font-size: 0.8em; }
 }

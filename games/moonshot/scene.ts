@@ -1,10 +1,17 @@
 /**
- * Moonshot scene renderer: neon midnight launch, drawn entirely in Canvas 2D.
+ * Moonshot scene renderer: voxel / chunky-pixel-art midnight launch, Canvas 2D.
  *
- * The multiplier curve is drawn live as the rocket's burning comet trail —
- * the chart IS the artwork. All coordinates are CSS pixels; the canvas is
- * scaled for devicePixelRatio in resize().
+ * The multiplier curve is drawn live as the rocket's blocky comet trail —
+ * the chart IS the artwork. The pilot is the player's ACTUAL selected Friend:
+ * its canonical on-chain 16x16 sprite, voxel-rendered (each pixel faked as a
+ * 3D cube) and animated through its idle-up frames.
+ *
+ * All coordinates are CSS pixels; the canvas is scaled for devicePixelRatio
+ * in resize(). Static art (rocket, pilot frames) is pre-rendered once to
+ * offscreen canvases so the per-frame cost stays tiny.
  */
+import type { PilotSprite } from "./pilot";
+
 export type ScenePhase = "idle" | "countdown" | "flying" | "cashed" | "crashed";
 
 export interface FrameState {
@@ -21,16 +28,22 @@ interface Particle {
   x: number; y: number; vx: number; vy: number;
   life: number; maxLife: number; size: number;
   color: string; gravity: number;
-  shape?: "circle" | "rect";
-  rot?: number; vr?: number;
+  rot: number; vr: number; // spin for chunky debris / confetti
 }
 
 interface TrailPoint { x: number; y: number; m: number; }
 
-interface Star { x: number; y: number; r: number; phase: number; speed: number; bright: boolean; }
+interface Star { x: number; y: number; s: number; phase: number; speed: number; bright: boolean; }
 interface Cloud { x: number; y: number; s: number; speed: number; }
 interface Meteor { x: number; y: number; vx: number; vy: number; t: number; life: number; }
 interface Ring { x: number; y: number; t: number; life: number; maxR: number; color: string; width: number; delay: number; }
+
+/** Voxel palette per Friend family: Skeleton, Mask, Family, Cellular, Asymmetry, Hoverer, Colossus, Sparkling, Hollow. */
+const FAMILY_PALETTE = [
+  "#e8e4d8", "#b48cff", "#ffab5e", "#5effa8", "#38e1ff",
+  "#6ab8ff", "#ff6a4d", "#ffd23f", "#9aa0c3",
+];
+const OUTLINE = "#0a0e24";
 
 function mulberry32(a: number): () => number {
   return function () {
@@ -59,6 +72,77 @@ function mix(a: string, b: string, t: number): string {
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
+function parseColor(c: string): [number, number, number] {
+  if (c[0] === "#") {
+    const h = c.slice(1);
+    if (h.length === 3) {
+      return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)];
+    }
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  const m = c.match(/[\d.]+/g);
+  if (m && m.length >= 3) return [+m[0], +m[1], +m[2]];
+  return [255, 255, 255];
+}
+
+/** Multiply a color's brightness by f (clamped). Handles #rgb, #rrggbb, rgb(). */
+function shade(c: string, f: number): string {
+  const [r, g, b] = parseColor(c);
+  const cl = (v: number) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return `rgb(${cl(r)},${cl(g)},${cl(b)})`;
+}
+
+/**
+ * Fake a 3D cube for one pixel: base rect, lighter top + left strips,
+ * darker bottom + right strips. Max 5 rects — static art is pre-rendered,
+ * so per-frame cost stays tiny.
+ */
+function drawVoxelPixel(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, base: string): void {
+  ctx.fillStyle = base;
+  ctx.fillRect(x, y, s, s);
+  const t = Math.max(1, Math.round(s * 0.28));
+  ctx.fillStyle = shade(base, 1.4);
+  ctx.fillRect(x, y, s, t);
+  ctx.fillRect(x, y, t, s);
+  ctx.fillStyle = shade(base, 0.5);
+  ctx.fillRect(x, y + s - t, s, t);
+  ctx.fillRect(x + s - t, y, t, s);
+}
+
+/** Chunky rocket, 17x24 blocks. D=outline W=white R=red G=gold C=cyan B=window E=engine. */
+const ROCKET_MAP = [
+  ".......DDD.......",
+  "......DRRRD......",
+  "......DRRRD......",
+  ".....DRRRRRD.....",
+  "....DRRRRRRRD....",
+  "....DWWWWWWWD....",
+  "....DWWWWWWWD....",
+  "....DWWWWWWWD....",
+  "....DWWCCCWWD....",
+  "....DWWCBCWWD....",
+  "....DWWCCCWWD....",
+  "....DWWWWWWWD....",
+  "....DWWWWWWWD....",
+  "....DWGGGGGWD....",
+  "...DRRWWWWWRRD...",
+  "..DRRWWWWWWWRRD..",
+  "..DRRRWWWWWRRRD..",
+  ".DRRRRWWWWWRRRRD.",
+  ".DRRRRWWWWWRRRRD.",
+  ".DDRRRWWWWWRRRDD.",
+  "...DDDEEEEEDDD...",
+  "...DDDEEEEEDDD...",
+  ".................",
+  ".................",
+];
+const ROCKET_COLORS: Record<string, string> = {
+  D: OUTLINE, W: "#eef1ff", R: "#e0455a", G: "#ffd23f",
+  C: "#38e1ff", B: "#101736", E: "#3a4066",
+};
+const ROCKET_COLS = 17;
+const ROCKET_ROWS = 24;
+
 export class MoonshotScene {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -67,13 +151,12 @@ export class MoonshotScene {
   private reducedMotion = false;
   private stars: Star[] = [];
   private clouds: Cloud[] = [];
-  private city: { x: number; y: number; r: number; warm: boolean }[] = [];
+  private city: { x: number; y: number; s: number; warm: boolean }[] = [];
   private particles: Particle[] = [];
   private trail: TrailPoint[] = [];
   private trauma = 0;
   private time = 0;
   private lastAlt = 0;
-  private blinkT = 0;
   private explosion: { x: number; y: number; t: number } | null = null;
   private eject: { x: number; y: number; vx: number; vy: number; landed: boolean } | null = null;
   private shockT = -1;
@@ -82,6 +165,10 @@ export class MoonshotScene {
   private meteors: Meteor[] = [];
   private rings: Ring[] = [];
   private meteorTimer = 2.5;
+  // voxel art
+  private pilot: PilotSprite | null = null;
+  private pilotArt: HTMLCanvasElement[] | null = null;
+  private rocketArt: HTMLCanvasElement | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -89,6 +176,7 @@ export class MoonshotScene {
     if (!ctx) throw new Error("Canvas 2D not supported");
     this.ctx = ctx;
     this.seed();
+    this.buildRocketArt();
     this.resize();
   }
 
@@ -99,6 +187,12 @@ export class MoonshotScene {
 
   addTrauma(amount: number): void {
     if (!this.reducedMotion) this.trauma = Math.min(1, this.trauma + amount);
+  }
+
+  /** Install the player's Friend pilot (canonical on-chain sprite frames). */
+  setPilot(pilot: PilotSprite | null): void {
+    this.pilot = pilot;
+    this.pilotArt = pilot ? this.buildPilotArt(pilot) : null;
   }
 
   resize(): void {
@@ -113,27 +207,81 @@ export class MoonshotScene {
 
   private seed(): void {
     const rnd = mulberry32(20260927);
-    this.stars = Array.from({ length: 130 }, (_, i) => ({
-      x: rnd(), y: rnd() * 0.72, r: 0.6 + rnd() * 1.6,
+    this.stars = Array.from({ length: 120 }, (_, i) => ({
+      x: rnd(), y: rnd() * 0.72, s: 2 + Math.floor(rnd() * 3),
       phase: rnd() * Math.PI * 2, speed: 0.6 + rnd() * 2.4,
       bright: i % 11 === 0,
     }));
-    // far star layer: dimmer, slower, deeper parallax
     this.stars2 = Array.from({ length: 70 }, () => ({
-      x: rnd(), y: rnd() * 0.8, r: 0.4 + rnd() * 0.9,
+      x: rnd(), y: rnd() * 0.8, s: 1 + Math.floor(rnd() * 2),
       phase: rnd() * Math.PI * 2, speed: 0.3 + rnd() * 1.1,
       bright: false,
     }));
     this.clouds = Array.from({ length: 5 }, () => ({
       x: rnd(), y: 0.08 + rnd() * 0.5, s: 0.5 + rnd() * 1.1, speed: 0.004 + rnd() * 0.01,
     }));
-    // far cloud layer: smaller, dimmer, slower drift
     this.cloudsFar = Array.from({ length: 6 }, () => ({
       x: rnd(), y: 0.05 + rnd() * 0.55, s: 0.3 + rnd() * 0.6, speed: 0.002 + rnd() * 0.005,
     }));
     this.city = Array.from({ length: 90 }, () => ({
-      x: rnd(), y: 0.9 + rnd() * 0.09, r: 0.8 + rnd() * 2.2, warm: rnd() > 0.35,
+      x: rnd(), y: 0.9 + rnd() * 0.09, s: 2 + Math.floor(rnd() * 3), warm: rnd() > 0.35,
     }));
+  }
+
+  /** Pre-render the chunky rocket once (voxel-shaded blocks). */
+  private buildRocketArt(): void {
+    const cell = 4;
+    const c = document.createElement("canvas");
+    c.width = ROCKET_COLS * cell;
+    c.height = ROCKET_ROWS * cell;
+    const g = c.getContext("2d");
+    if (!g) return;
+    for (let y = 0; y < ROCKET_ROWS; y++) {
+      const row = ROCKET_MAP[y];
+      for (let x = 0; x < ROCKET_COLS; x++) {
+        const ch = row[x];
+        if (ch === ".") continue;
+        drawVoxelPixel(g, x * cell, y * cell, cell, ROCKET_COLORS[ch] ?? "#ffffff");
+      }
+    }
+    this.rocketArt = c;
+  }
+
+  /** Pre-render the 8 pilot frames as voxel sprites with a chunky outline. */
+  private buildPilotArt(pilot: PilotSprite): HTMLCanvasElement[] {
+    const cell = 6;
+    const pad = 1;
+    const W = (16 + pad * 2) * cell;
+    const H = (16 + pad * 2) * cell;
+    const base = FAMILY_PALETTE[pilot.familyId] ?? "#38e1ff";
+    return pilot.frames.map((rows) => {
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      const g = c.getContext("2d");
+      if (!g) return c;
+      const on = (x: number, y: number) =>
+        y >= 0 && y < 16 && x >= 0 && x < 16 && rows[y][x] === "#";
+      // outline pass: dilated dark voxels under the sprite
+      for (let y = -1; y <= 16; y++) {
+        for (let x = -1; x <= 16; x++) {
+          if (on(x, y)) continue;
+          let near = false;
+          for (let dy = -1; dy <= 1 && !near; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (on(x + dx, y + dy)) { near = true; break; }
+            }
+          }
+          if (near) drawVoxelPixel(g, (x + pad) * cell, (y + pad) * cell, cell, OUTLINE);
+        }
+      }
+      // main pass: the Friend's canonical pixels, voxel-shaded
+      for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+          if (on(x, y)) drawVoxelPixel(g, (x + pad) * cell, (y + pad) * cell, cell, base);
+        }
+      }
+      return c;
+    });
   }
 
   /** Altitude in px for a multiplier; the world scrolls by this. */
@@ -146,29 +294,30 @@ export class MoonshotScene {
     this.time += dt;
     const { ctx, W, H } = this;
     const u = W / 480;
+    const bk = 3 * u; // chunky block size
 
     // --- update ---
     this.trauma = Math.max(0, this.trauma - dt * 1.4);
-    this.blinkT += dt;
     const alt = state.phase === "flying" || state.phase === "cashed" || state.phase === "crashed"
       ? this.altitude(state.multiplier) : 0;
     const dAlt = alt - this.lastAlt;
     this.lastAlt = alt;
 
-    // scroll trail + spawn new trail point while flying
+    // scroll trail + spawn new trail point while flying (blocky comet)
     for (const p of this.trail) p.y += dAlt;
     this.trail = this.trail.filter(p => p.y < H + 60);
     if (state.phase === "flying") {
       const r = this.rocketPos(state, alt);
-      this.trail.push({ x: r.x, y: r.y - 34 * u, m: state.multiplier });
+      this.trail.push({ x: r.x, y: r.y + 12 * bk, m: state.multiplier });
       if (this.trail.length > 400) this.trail.shift();
-      // exhaust embers
+      // exhaust embers (squares)
       if (!this.reducedMotion || Math.random() < 0.4) {
         this.spawn({
-          x: r.x + (Math.random() - 0.5) * 10 * u, y: r.y + 30 * u,
+          x: r.x + (Math.random() - 0.5) * 10 * u, y: r.y + 12 * bk,
           vx: (Math.random() - 0.5) * 60 * u, vy: (120 + Math.random() * 120) * u,
           life: 0.5, maxLife: 0.5, size: (3 + Math.random() * 5) * u,
           color: Math.random() < 0.5 ? "#ffb02e" : "#ff7a2e", gravity: -40 * u,
+          rot: 0, vr: 0,
         });
       }
     }
@@ -176,7 +325,7 @@ export class MoonshotScene {
       const r = this.rocketPos(state, alt);
       this.explosion = { x: r.x, y: r.y, t: 0 };
       this.addTrauma(1);
-      // fireball: bigger, denser
+      // blocky fireball chunks
       const fireN = this.reducedMotion ? 16 : 72;
       for (let i = 0; i < fireN; i++) {
         const a = Math.random() * Math.PI * 2, sp = (60 + Math.random() * 380) * u;
@@ -184,9 +333,10 @@ export class MoonshotScene {
           x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
           life: 1.1, maxLife: 1.1, size: (5 + Math.random() * 11) * u,
           color: ["#ff4d2e", "#ffb02e", "#fff3c4", "#ff7a2e"][i % 4], gravity: 170 * u,
+          rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 10,
         });
       }
-      // dark debris chunks (rects, heavy fall)
+      // dark wreckage chunks (heavy fall, spinning squares)
       const debrisN = this.reducedMotion ? 0 : 12;
       for (let i = 0; i < debrisN; i++) {
         const a = Math.random() * Math.PI * 2, sp = (50 + Math.random() * 200) * u;
@@ -194,10 +344,10 @@ export class MoonshotScene {
           x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80 * u,
           life: 1.8, maxLife: 1.8, size: (5 + Math.random() * 7) * u,
           color: i % 2 ? "#2a2f4a" : "#5a6285", gravity: 720 * u,
-          shape: "rect", rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 12,
+          rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 12,
         });
       }
-      // scattered RF coins — more of them, varied golds
+      // scattered RF coins — chunky gold squares
       const coinN = this.reducedMotion ? 10 : 34;
       for (let i = 0; i < coinN; i++) {
         const a = Math.random() * Math.PI * 2, sp = (80 + Math.random() * 300) * u;
@@ -205,6 +355,7 @@ export class MoonshotScene {
           x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 140 * u,
           life: 1.9, maxLife: 1.9, size: (5 + Math.random() * 4) * u,
           color: ["#ffd23f", "#ffdf80", "#f5b800"][i % 3], gravity: 520 * u,
+          rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 14,
         });
       }
       this.eject = { x: r.x, y: r.y - 10 * u, vx: (Math.random() - 0.5) * 60 * u, vy: -160 * u, landed: false };
@@ -214,7 +365,7 @@ export class MoonshotScene {
       this.shockT = 0;
       this.addTrauma(0.25);
       const r = this.rocketPos(state, alt);
-      // thick coin fountain
+      // thick coin fountain (squares)
       const coinN = this.reducedMotion ? 14 : 70;
       for (let i = 0; i < coinN; i++) {
         const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4, sp = (140 + Math.random() * 360) * u;
@@ -222,9 +373,10 @@ export class MoonshotScene {
           x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
           life: 1.6, maxLife: 1.6, size: (4 + Math.random() * 7) * u,
           color: i % 3 === 0 ? "#fff3c4" : i % 3 === 1 ? "#ffd23f" : "#ffdf80", gravity: 430 * u,
+          rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 12,
         });
       }
-      // confetti burst
+      // pixel confetti burst
       const confN = this.reducedMotion ? 0 : 30;
       const confettiColors = ["#38e1ff", "#ffd23f", "#ff6ad5", "#7dffb0", "#ffffff"];
       for (let i = 0; i < confN; i++) {
@@ -233,10 +385,10 @@ export class MoonshotScene {
           x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60 * u,
           life: 1.8, maxLife: 1.8, size: (5 + Math.random() * 6) * u,
           color: confettiColors[i % confettiColors.length], gravity: 260 * u,
-          shape: "rect", rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 16,
+          rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 16,
         });
       }
-      // double shockwave ring (second one delayed)
+      // double shockwave SQUARES (second one delayed)
       if (!this.reducedMotion) {
         this.rings.push(
           { x: r.x, y: r.y, t: 0, life: 0.55, maxR: 130 * u, color: "#ffd23f", width: 10 * u, delay: 0 },
@@ -245,7 +397,7 @@ export class MoonshotScene {
       }
     }
     if (this.shockT >= 0) this.shockT += dt;
-    // shockwave rings
+    // shockwave squares
     for (const ring of this.rings) ring.t += dt;
     this.rings = this.rings.filter(rg => rg.t - rg.delay < rg.life);
     // shooting stars (ambient; skipped in reduced motion)
@@ -283,13 +435,13 @@ export class MoonshotScene {
       e.y += e.vy * dt;
       if (e.y > H * 0.86) { e.y = H * 0.86; e.landed = true; }
     }
-    // particles
+    // particles (all squares)
     for (const p of this.particles) {
       p.life -= dt;
       p.vy += p.gravity * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      if (p.shape === "rect" && p.vr !== undefined) p.rot = (p.rot ?? 0) + p.vr * dt;
+      p.rot += p.vr * dt;
     }
     this.particles = this.particles.filter(p => p.life > 0);
     for (const c of this.clouds) {
@@ -311,10 +463,10 @@ export class MoonshotScene {
     this.drawMeteors(u);
     this.drawTrail(u);
     if (state.phase === "crashed") this.drawCrashAftermath(state, u);
-    else this.drawRocket(state, alt, u);
-    this.drawParticles(u);
-    this.drawRings(u);
-    if (this.eject) this.drawEjectee(u);
+    else this.drawRocket(state, alt, u, bk);
+    this.drawParticles();
+    this.drawRings();
+    if (this.eject) this.drawEjectee(u, bk);
     if (state.phase === "countdown") this.drawCountdown(state, u);
     if (!this.reducedMotion && this.explosion && this.explosion.t < 0.32) {
       // two-phase flash: hot white pop, then lingering orange wash
@@ -354,41 +506,36 @@ export class MoonshotScene {
     ctx.fillStyle = g;
     ctx.fillRect(-20, -20, W + 40, H + 40);
 
-    // far stars: dimmer, slower, deeper parallax
+    // far stars: chunky dim squares, deeper parallax
     for (const s of this.stars2) {
       const y = (((s.y * H + alt * 0.12) % (H * 0.85)) + H * 0.85) % (H * 0.85);
       const tw = 0.25 + 0.3 * Math.sin(this.time * s.speed + s.phase);
-      ctx.globalAlpha = tw;
+      ctx.globalAlpha = Math.max(0, tw);
       ctx.fillStyle = "#9db8dd";
-      ctx.beginPath();
-      ctx.arc(s.x * W, y, s.r * u, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(s.x * W, y, s.s * u, s.s * u);
     }
     ctx.globalAlpha = 1;
 
-    // stars with parallax
+    // near stars: chunky squares with twinkle
     for (const s of this.stars) {
       const y = (((s.y * H + alt * 0.25) % (H * 0.8)) + H * 0.8) % (H * 0.8);
       const tw = 0.45 + 0.55 * Math.sin(this.time * s.speed + s.phase);
-      ctx.globalAlpha = tw;
+      ctx.globalAlpha = Math.max(0, tw);
       ctx.fillStyle = "#cfe8ff";
-      ctx.beginPath();
-      ctx.arc(s.x * W, y, s.r * u, 0, Math.PI * 2);
-      ctx.fill();
-      // sparkle cross on the brightest stars at twinkle peak
+      const sz = s.s * u;
+      ctx.fillRect(s.x * W, y, sz, sz);
+      // plus-sparkle on the brightest stars at twinkle peak
       if (s.bright && tw > 0.88) {
         const fl = (tw - 0.88) / 0.12 * 9 * u;
-        ctx.strokeStyle = `rgba(220,240,255,${(tw - 0.88) / 0.12 * 0.8})`;
-        ctx.lineWidth = 1.2 * u;
-        ctx.beginPath();
-        ctx.moveTo(s.x * W - fl, y); ctx.lineTo(s.x * W + fl, y);
-        ctx.moveTo(s.x * W, y - fl); ctx.lineTo(s.x * W, y + fl);
-        ctx.stroke();
+        const a = (tw - 0.88) / 0.12 * 0.8;
+        ctx.fillStyle = `rgba(220,240,255,${a})`;
+        ctx.fillRect(s.x * W - fl, y + sz / 2 - u, fl * 2, 2 * u);
+        ctx.fillRect(s.x * W + sz / 2 - u, y - fl, 2 * u, fl * 2);
       }
     }
     ctx.globalAlpha = 1;
 
-    // moon with breathing glow
+    // pixel moon: soft halo, blocky disc, dithered square craters
     const mx = W * 0.82, my = H * 0.12 - alt * 0.15;
     const pulse = this.reducedMotion ? 1 : 0.85 + 0.15 * Math.sin(this.time * 1.3);
     const mg = ctx.createRadialGradient(mx, my, 4 * u, mx, my, 64 * u * pulse);
@@ -396,69 +543,75 @@ export class MoonshotScene {
     mg.addColorStop(0.35, "rgba(255,246,214,0.25)");
     mg.addColorStop(1, "rgba(255,246,214,0)");
     ctx.fillStyle = mg;
-    ctx.beginPath(); ctx.arc(mx, my, 64 * u * pulse, 0, Math.PI * 2); ctx.fill();
-    // faint outer halo ring
+    ctx.fillRect(mx - 64 * u * pulse, my - 64 * u * pulse, 128 * u * pulse, 128 * u * pulse);
     ctx.strokeStyle = "rgba(255,246,214,0.12)";
     ctx.lineWidth = 2 * u;
-    ctx.beginPath(); ctx.arc(mx, my, 44 * u * pulse, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeRect(mx - 44 * u * pulse, my - 44 * u * pulse, 88 * u * pulse, 88 * u * pulse);
+    // disc: stepped pixel circle
+    const mr = 22 * u;
     ctx.fillStyle = "#fdf3cf";
-    ctx.beginPath(); ctx.arc(mx, my, 22 * u, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(220,200,150,0.5)";
-    ctx.beginPath(); ctx.arc(mx - 7 * u, my - 4 * u, 5 * u, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(mx + 6 * u, my + 7 * u, 3.5 * u, 0, Math.PI * 2); ctx.fill();
+    const step = Math.max(2, 3 * u);
+    for (let yy = -mr; yy <= mr; yy += step) {
+      const half = Math.sqrt(Math.max(0, mr * mr - yy * yy));
+      ctx.fillRect(mx - half, my + yy, half * 2, step);
+    }
+    // dithered craters: checkerboard squares
+    ctx.fillStyle = "rgba(214,192,140,0.85)";
+    const crater = (cx: number, cy: number, r: number) => {
+      const cs = Math.max(2, r / 2.5);
+      for (let yy = -r; yy < r; yy += cs) {
+        for (let xx = -r; xx < r; xx += cs) {
+          if (xx * xx + yy * yy > r * r) continue;
+          if (((xx / cs + yy / cs) & 1) === 0) ctx.fillRect(cx + xx, cy + yy, cs, cs);
+        }
+      }
+    };
+    crater(mx - 7 * u, my - 4 * u, 5 * u);
+    crater(mx + 6 * u, my + 7 * u, 3.5 * u);
+    crater(mx + 1 * u, my - 10 * u, 2.5 * u);
 
-    // far cloud layer (dimmer, smaller)
+    // far blocky clouds (rect clusters)
     ctx.fillStyle = "rgba(90,110,190,0.10)";
     for (const c of this.cloudsFar) {
       const y = (((c.y * H + alt * 0.3) % (H + 200)) + H + 200) % (H + 200) - 100;
-      ctx.beginPath();
-      ctx.ellipse(c.x * W, y, 52 * c.s * u, 14 * c.s * u, 0, 0, Math.PI * 2);
-      ctx.ellipse(c.x * W + 30 * c.s * u, y + 6 * u, 34 * c.s * u, 10 * c.s * u, 0, 0, Math.PI * 2);
-      ctx.fill();
+      this.blockyCloud(c.x * W, y, c.s * u * 0.7);
     }
-
-    // clouds
+    // near blocky clouds
     ctx.fillStyle = "rgba(120,140,220,0.16)";
     for (const c of this.clouds) {
       const y = (((c.y * H + alt * 0.5) % (H + 200)) + H + 200) % (H + 200) - 100;
-      ctx.beginPath();
-      ctx.ellipse(c.x * W, y, 70 * c.s * u, 20 * c.s * u, 0, 0, Math.PI * 2);
-      ctx.ellipse(c.x * W + 40 * c.s * u, y + 8 * u, 46 * c.s * u, 15 * c.s * u, 0, 0, Math.PI * 2);
-      ctx.fill();
+      this.blockyCloud(c.x * W, y, c.s * u);
     }
 
-    // launch tower (scrolls away on ascent)
+    // launch tower: chunky rects (scrolls away on ascent)
     const towerBase = H * 0.88 + alt;
     if (towerBase < H + 200 * u) {
       const tx = W * 0.16, tw = 44 * u, th = H * 0.42;
       ctx.fillStyle = "#0d1230";
       ctx.fillRect(tx - tw / 2, towerBase - th, tw, th);
-      ctx.strokeStyle = "rgba(56,225,255,0.75)";
-      ctx.lineWidth = 2 * u;
-      ctx.beginPath();
-      ctx.moveTo(tx - tw / 2, towerBase - th); ctx.lineTo(tx - tw / 2, towerBase);
-      ctx.moveTo(tx + tw / 2, towerBase - th); ctx.lineTo(tx + tw / 2, towerBase);
-      ctx.stroke();
-      // cross braces
-      ctx.strokeStyle = "rgba(56,225,255,0.28)";
-      ctx.lineWidth = 1.5 * u;
+      ctx.fillStyle = "rgba(56,225,255,0.75)";
+      ctx.fillRect(tx - tw / 2, towerBase - th, 2 * u, th);
+      ctx.fillRect(tx + tw / 2 - 2 * u, towerBase - th, 2 * u, th);
+      // cross braces as stepped rects
+      ctx.fillStyle = "rgba(56,225,255,0.28)";
       for (let i = 0; i < 5; i++) {
         const y0 = towerBase - th + (i * th) / 5;
-        ctx.beginPath();
-        ctx.moveTo(tx - tw / 2, y0); ctx.lineTo(tx + tw / 2, y0 + th / 5);
-        ctx.stroke();
+        const w = tw * (i % 2 === 0 ? 1 : 0.6);
+        ctx.fillRect(tx - w / 2, y0, w, 2.5 * u);
       }
-      // beacon
+      // blinking square beacon
       const blink = Math.sin(this.time * 4) > 0;
       ctx.fillStyle = blink ? "#ff4d5e" : "rgba(255,77,94,0.25)";
-      ctx.beginPath(); ctx.arc(tx, towerBase - th - 8 * u, 5 * u, 0, Math.PI * 2); ctx.fill();
-      // crane arm
-      ctx.strokeStyle = "#0d1230";
-      ctx.lineWidth = 8 * u;
-      ctx.beginPath(); ctx.moveTo(tx, towerBase - th * 0.8); ctx.lineTo(W * 0.42, towerBase - th * 0.8); ctx.stroke();
+      const bs = 6 * u;
+      ctx.fillRect(tx - bs / 2, towerBase - th - 10 * u, bs, bs);
+      // crane arm: thin beam from the tower toward the pad
+      ctx.fillStyle = "#0d1230";
+      ctx.fillRect(tx, towerBase - th * 0.8 - 2 * u, W * 0.42 - tx, 4 * u);
+      ctx.fillStyle = "rgba(56,225,255,0.6)";
+      ctx.fillRect(tx, towerBase - th * 0.8 - 2 * u, W * 0.42 - tx, 1.5 * u);
     }
 
-    // ground + city lights
+    // ground + city lights (squares)
     const gy = H * 0.88 + alt;
     if (gy < H + 60) {
       ctx.fillStyle = "#070a16";
@@ -467,50 +620,48 @@ export class MoonshotScene {
         const y = c.y * H + alt;
         if (y > H + 10) continue;
         ctx.fillStyle = c.warm ? "rgba(255,190,90,0.85)" : "rgba(140,200,255,0.7)";
-        ctx.beginPath(); ctx.arc(c.x * W, y, c.r * u, 0, Math.PI * 2); ctx.fill();
+        ctx.fillRect(c.x * W, y, c.s * u, c.s * u);
       }
-      // pad
+      // pad: chunky rects
       ctx.fillStyle = "#141a3d";
       const px = W * 0.5;
-      ctx.beginPath();
-      ctx.ellipse(px, gy + 6 * u, 64 * u, 14 * u, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(56,225,255,0.5)";
-      ctx.lineWidth = 2 * u;
-      ctx.beginPath();
-      ctx.ellipse(px, gy + 6 * u, 64 * u, 14 * u, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.fillRect(px - 64 * u, gy, 128 * u, 12 * u);
+      ctx.fillStyle = "rgba(56,225,255,0.5)";
+      ctx.fillRect(px - 64 * u, gy, 128 * u, 2 * u);
+      ctx.fillRect(px - 64 * u, gy + 10 * u, 128 * u, 2 * u);
     }
   }
 
-  /** Ambient shooting stars: bright head with a fading gradient tail. */
+  /** A blocky cloud = a cluster of rects. Assumes fillStyle already set. */
+  private blockyCloud(x: number, y: number, s: number): void {
+    const { ctx } = this;
+    ctx.fillRect(x - 52 * s, y - 10 * s, 104 * s, 22 * s);
+    ctx.fillRect(x - 30 * s, y - 20 * s, 66 * s, 14 * s);
+    ctx.fillRect(x + 18 * s, y - 4 * s, 44 * s, 14 * s);
+    ctx.fillRect(x - 62 * s, y - 2 * s, 24 * s, 10 * s);
+  }
+
+  /** Ambient shooting stars: square head with fading square tail. */
   private drawMeteors(u: number): void {
     const { ctx } = this;
-    ctx.save();
-    ctx.lineCap = "round";
     for (const mt of this.meteors) {
       const k = 1 - mt.t / mt.life;
-      const tail = 0.9;
-      const tx = mt.x - mt.vx * tail * 0.35, ty = mt.y - mt.vy * tail * 0.35;
-      const g = ctx.createLinearGradient(mt.x, mt.y, tx, ty);
-      g.addColorStop(0, `rgba(255,255,255,${0.95 * k})`);
-      g.addColorStop(1, "rgba(160,200,255,0)");
-      ctx.strokeStyle = g;
-      ctx.lineWidth = 2.4 * u;
-      ctx.beginPath();
-      ctx.moveTo(mt.x, mt.y);
-      ctx.lineTo(tx, ty);
-      ctx.stroke();
-      ctx.fillStyle = `rgba(255,255,255,${k})`;
-      ctx.beginPath();
-      ctx.arc(mt.x, mt.y, 2.2 * u * k + 0.6, 0, Math.PI * 2);
-      ctx.fill();
+      const steps = 4;
+      for (let i = 0; i < steps; i++) {
+        const f = i / steps;
+        const px = mt.x - mt.vx * 0.09 * f;
+        const py = mt.y - mt.vy * 0.09 * f;
+        const sz = (4 - i * 0.8) * u * k + 0.6;
+        ctx.fillStyle = i === 0
+          ? `rgba(255,255,255,${0.95 * k})`
+          : `rgba(160,200,255,${0.5 * k * (1 - f)})`;
+        ctx.fillRect(px - sz / 2, py - sz / 2, sz, sz);
+      }
     }
-    ctx.restore();
   }
 
-  /** Expanding shockwave rings for the cash-out punch. */
-  private drawRings(u: number): void {
+  /** Expanding shockwave SQUARES for the cash-out punch. */
+  private drawRings(): void {
     const { ctx } = this;
     ctx.save();
     for (const rg of this.rings) {
@@ -518,391 +669,224 @@ export class MoonshotScene {
       if (age < 0) continue;
       const k = age / rg.life;
       const ease = 1 - Math.pow(1 - k, 3);
-      const radius = Math.max(1, rg.maxR * ease);
+      const half = Math.max(1, rg.maxR * ease);
       ctx.globalAlpha = Math.max(0, 0.9 * (1 - k));
       ctx.strokeStyle = rg.color;
       ctx.lineWidth = rg.width * (1 - k * 0.6);
-      ctx.shadowColor = rg.color;
-      ctx.shadowBlur = 18 * u;
-      ctx.beginPath();
-      ctx.arc(rg.x, rg.y, radius, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.strokeRect(rg.x - half, rg.y - half, half * 2, half * 2);
     }
     ctx.restore();
-    void u;
   }
 
+  /** The multiplier curve as a blocky comet: chunky squares, risk-colored. */
   private drawTrail(u: number): void {
     const { ctx } = this;
-    if (this.trail.length < 2) return;
+    const n = this.trail.length;
+    if (n < 2) return;
     ctx.save();
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    for (let i = 1; i < this.trail.length; i++) {
-      const a = this.trail[i - 1], b = this.trail[i];
-      ctx.strokeStyle = riskColor(b.m);
+    for (let i = 1; i < n; i++) {
+      const p = this.trail[i];
+      const f = i / n;
+      const sz = (2 + 7 * f) * u;
       ctx.globalAlpha = Math.min(1, i / 24 + 0.15);
-      ctx.lineWidth = (2 + 7 * Math.min(1, i / this.trail.length)) * u;
-      ctx.shadowColor = riskColor(b.m);
-      ctx.shadowBlur = 14 * u;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
+      ctx.fillStyle = riskColor(p.m);
+      ctx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
+      // hot core on the newest squares
+      if (f > 0.85) {
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        const cs = sz * 0.4;
+        ctx.fillRect(p.x - cs / 2, p.y - cs / 2, cs, cs);
+      }
     }
     ctx.restore();
   }
 
-  /** Draw the rocket + co-pilot. Skipped after crash (aftermath draws wreckage). */
-  private drawRocket(state: FrameState, alt: number, u: number): void {
+  /** Draw the chunky rocket with the Friend pilot riding on top. */
+  private drawRocket(state: FrameState, alt: number, u: number, bk: number): void {
     const { ctx } = this;
     const r = this.rocketPos(state, alt);
-    const bob = state.phase === "flying" ? Math.sin(this.time * 30) * 2 * u : Math.sin(this.time * 2) * 3 * u;
+    const bob = state.phase === "flying"
+      ? Math.round(Math.sin(this.time * 30) * 1.2) * u
+      : Math.round(Math.sin(this.time * 2) * 1.5) * u;
     const tilt = state.phase === "flying" ? Math.sin(this.time * 1.7) * 0.05 : 0;
     ctx.save();
     ctx.translate(r.x, r.y + bob);
     ctx.rotate(tilt);
 
-    // exhaust flame while flying
+    // blocky exhaust flame while flying (quantized flicker)
     if (state.phase === "flying") {
-      const flick = 1 + Math.sin(this.time * 47) * 0.25;
-      const fg = ctx.createLinearGradient(0, 26 * u, 0, (26 + 52 * flick) * u);
-      fg.addColorStop(0, "rgba(255,240,180,0.95)");
-      fg.addColorStop(0.4, "rgba(255,150,50,0.85)");
-      fg.addColorStop(1, "rgba(255,80,30,0)");
-      ctx.fillStyle = fg;
-      ctx.beginPath();
-      ctx.moveTo(-13 * u, 24 * u);
-      ctx.quadraticCurveTo(0, (30 + 58 * flick) * u, 13 * u, 24 * u);
-      ctx.closePath();
-      ctx.fill();
+      const segs: Array<[number, string]> = [
+        [5, "#fff3c4"], [4, "#ffd23f"], [3, "#ff9a2e"], [2, "#ff5a2e"],
+      ];
+      let yy = 10 * bk;
+      for (const [w, col] of segs) {
+        const h = (2 + Math.floor(Math.random() * 3)) * bk * 0.9;
+        const ww = (w + (Math.random() < 0.5 ? 1 : 0)) * bk;
+        ctx.fillStyle = col;
+        ctx.fillRect(-ww / 2, yy, ww, h);
+        yy += h;
+      }
     }
 
-    // fins
-    ctx.fillStyle = "#e0455a";
-    ctx.beginPath();
-    ctx.moveTo(-16 * u, 6 * u); ctx.lineTo(-30 * u, 30 * u); ctx.lineTo(-14 * u, 28 * u);
-    ctx.closePath(); ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(16 * u, 6 * u); ctx.lineTo(30 * u, 30 * u); ctx.lineTo(14 * u, 28 * u);
-    ctx.closePath(); ctx.fill();
-    // body
-    const bg = ctx.createLinearGradient(-18 * u, 0, 18 * u, 0);
-    bg.addColorStop(0, "#8b93b8"); bg.addColorStop(0.5, "#e8ecff"); bg.addColorStop(1, "#8b93b8");
-    ctx.fillStyle = bg;
-    ctx.beginPath();
-    ctx.moveTo(-17 * u, 26 * u);
-    ctx.lineTo(-17 * u, -8 * u);
-    ctx.quadraticCurveTo(-17 * u, -30 * u, 0, -38 * u);
-    ctx.quadraticCurveTo(17 * u, -30 * u, 17 * u, -8 * u);
-    ctx.lineTo(17 * u, 26 * u);
-    ctx.quadraticCurveTo(0, 32 * u, -17 * u, 26 * u);
-    ctx.fill();
-    // nose tip
-    ctx.fillStyle = "#e0455a";
-    ctx.beginPath();
-    ctx.moveTo(-9 * u, -24 * u);
-    ctx.quadraticCurveTo(0, -40 * u, 9 * u, -24 * u);
-    ctx.quadraticCurveTo(0, -19 * u, -9 * u, -24 * u);
-    ctx.fill();
-    // window + co-pilot
-    ctx.fillStyle = "#0b1030";
-    ctx.beginPath(); ctx.arc(0, -6 * u, 13 * u, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "rgba(56,225,255,0.9)";
-    ctx.lineWidth = 2.5 * u;
-    ctx.beginPath(); ctx.arc(0, -6 * u, 13 * u, 0, Math.PI * 2); ctx.stroke();
-    this.drawCopilot(0, -6 * u, 9.5 * u, state.multiplier, state.phase);
-    // RF roundel
-    ctx.fillStyle = "#ffd23f";
-    ctx.beginPath(); ctx.arc(0, 14 * u, 6.5 * u, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#7a4d00";
-    ctx.font = `bold ${8 * u}px system-ui, sans-serif`;
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("RF", 0, 14.5 * u);
+    // rocket body (pre-rendered voxel art)
+    if (this.rocketArt) {
+      ctx.imageSmoothingEnabled = false;
+      const w = ROCKET_COLS * bk;
+      const h = ROCKET_ROWS * bk;
+      ctx.drawImage(this.rocketArt, -w / 2, -h / 2, w, h);
+    }
+
+    // the Friend pilot rides on top of the nose
+    const pilotW = 16 * bk;
+    const pilotH = pilotW; // square-ish (18 cells incl. outline padding)
+    const pilotY = -12 * bk - pilotH / 2 + 1.5 * bk;
+    const thrilled = state.phase === "flying" && state.multiplier >= 5 && !this.reducedMotion;
+    const hop = thrilled ? Math.abs(Math.sin(this.time * 9)) * 2.5 * bk * 0.4 : 0;
+    this.drawPilotSprite(0, pilotY - hop, pilotW, false);
     ctx.restore();
   }
 
-  /** Original co-pilot character: mint blob, pilot helmet, fluttering scarf. */
-  private drawCopilot(x: number, y: number, r: number, multiplier: number, phase: ScenePhase): void {
+  /**
+   * Draw the player's Friend pilot sprite (voxel pre-render, animated frames).
+   * dazed = crash aftermath: tilted with X eyes.
+   */
+  private drawPilotSprite(x: number, y: number, size: number, dazed: boolean): void {
     const { ctx } = this;
-    const mood = phase !== "flying" ? "chill" : multiplier < 2 ? "chill" : multiplier < 5 ? "thrilled" : "terrified";
+    const art = this.pilotArt;
+    if (!art || art.length === 0) return;
+    const frame = this.reducedMotion ? 0 : Math.floor(this.time * 6) % art.length;
+    const c = art[frame];
     ctx.save();
     ctx.translate(x, y);
-    // terrified tremble (damped by reduced motion)
-    if (mood === "terrified" && phase === "flying" && !this.reducedMotion) {
-      ctx.translate((Math.random() - 0.5) * r * 0.16, (Math.random() - 0.5) * r * 0.16);
-    }
-    // scarf flutter
-    const fl = Math.sin(this.time * (phase === "flying" ? 22 : 6)) * r * 0.5;
-    ctx.fillStyle = "#e0455a";
-    ctx.beginPath();
-    ctx.moveTo(-r * 0.7, r * 0.35);
-    ctx.quadraticCurveTo(-r * 1.9, r * 0.1 + fl, -r * 2.4, r * 0.7 + fl);
-    ctx.quadraticCurveTo(-r * 1.7, r * 0.9 + fl * 0.5, -r * 0.6, r * 0.75);
-    ctx.closePath(); ctx.fill();
-    // body
-    const bodyG = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.2, 0, 0, r * 1.2);
-    bodyG.addColorStop(0, "#a8ffdf");
-    bodyG.addColorStop(1, "#4fd6a5");
-    ctx.fillStyle = bodyG;
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
-    // helmet
-    ctx.fillStyle = "rgba(200,230,255,0.35)";
-    ctx.beginPath(); ctx.arc(0, -r * 0.15, r * 1.02, Math.PI, 0); ctx.fill();
-    ctx.strokeStyle = "rgba(220,240,255,0.8)";
-    ctx.lineWidth = r * 0.12;
-    ctx.beginPath(); ctx.arc(0, -r * 0.15, r * 1.02, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
-    // eyes — bigger and more readable per mood
-    const eyeR = r * (mood === "terrified" ? 0.38 : mood === "thrilled" ? 0.33 : 0.25);
-    const blink = this.blinkT % 3.7 < 0.12 && mood === "chill";
-    for (const s of [-1, 1]) {
-      const ex = s * r * 0.38, ey = -r * 0.05;
-      if (blink) {
-        ctx.strokeStyle = "#0c2b22"; ctx.lineWidth = r * 0.09;
-        ctx.beginPath(); ctx.moveTo(ex - eyeR, ey); ctx.lineTo(ex + eyeR, ey); ctx.stroke();
-      } else {
-        ctx.fillStyle = "#fff";
-        ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2); ctx.fill();
-        const pr = eyeR * (mood === "chill" ? 0.48 : 0.34);
-        const py = mood === "terrified" ? ey - eyeR * 0.28 : ey + Math.sin(this.time * 3) * r * 0.04;
-        ctx.fillStyle = "#0c2b22";
-        ctx.beginPath(); ctx.arc(ex, py, pr, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#fff";
-        ctx.beginPath(); ctx.arc(ex - pr * 0.3, py - pr * 0.3, pr * 0.35, 0, Math.PI * 2); ctx.fill();
-        if (mood === "thrilled") {
-          // sparkle in the pupil
-          const sx = ex + pr * 0.5, sy = py - pr * 0.55, sr = pr * 0.45;
-          ctx.strokeStyle = "#fff";
-          ctx.lineWidth = Math.max(1, pr * 0.2);
-          ctx.beginPath();
-          ctx.moveTo(sx - sr, sy); ctx.lineTo(sx + sr, sy);
-          ctx.moveTo(sx, sy - sr); ctx.lineTo(sx, sy + sr);
-          ctx.stroke();
-        }
-      }
-    }
-    // terrified: angled alarmed eyebrows
-    if (mood === "terrified") {
-      ctx.strokeStyle = "#0c2b22";
-      ctx.lineWidth = r * 0.11;
+    if (dazed) ctx.rotate(0.16 * Math.sin(this.time * 2.2));
+    ctx.imageSmoothingEnabled = false;
+    const h = size * (c.height / c.width);
+    ctx.drawImage(c, -size / 2, -h / 2, size, h);
+    if (dazed) {
+      // X eyes over the face
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = Math.max(2, size * 0.04);
       ctx.lineCap = "round";
+      const ex = size * 0.17, ey = -size * 0.1, er = size * 0.075;
       for (const s of [-1, 1]) {
+        const cx = s * ex;
         ctx.beginPath();
-        ctx.moveTo(s * r * 0.64, -r * 0.64);
-        ctx.lineTo(s * r * 0.16, -r * 0.44);
+        ctx.moveTo(cx - er, ey - er); ctx.lineTo(cx + er, ey + er);
+        ctx.moveTo(cx + er, ey - er); ctx.lineTo(cx - er, ey + er);
         ctx.stroke();
-      }
-    }
-    // thrilled: blush cheeks
-    if (mood === "thrilled") {
-      ctx.fillStyle = "rgba(255,110,150,0.55)";
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.ellipse(s * r * 0.64, r * 0.34, r * 0.17, r * 0.11, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    // mouth — bigger and mood-readable
-    ctx.strokeStyle = "#0c2b22";
-    ctx.lineWidth = r * 0.1;
-    ctx.lineCap = "round";
-    if (mood === "terrified") {
-      // open "O" of panic
-      ctx.fillStyle = "#0c2b22";
-      ctx.beginPath();
-      ctx.ellipse(0, r * 0.54, r * 0.17, r * 0.24, 0, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.beginPath();
-      if (mood === "chill") {
-        ctx.arc(0, r * 0.26, r * 0.34, Math.PI * 0.15, Math.PI * 0.85);
-      } else {
-        // thrilled: big open grin
-        ctx.arc(0, r * 0.16, r * 0.42, Math.PI * 0.08, Math.PI * 0.92);
-        ctx.fillStyle = "#7a2b3a";
-        ctx.fill();
-      }
-      ctx.stroke();
-    }
-    if (mood === "terrified") {
-      // two sweat drops racing off the helmet
-      const drops: Array<[number, number]> = [[0.95, 0], [-0.82, 1.4]];
-      for (const [ox, ph] of drops) {
-        const fall = ((this.time * 60) + ph * r) % (r * 2.6);
-        ctx.fillStyle = "rgba(140,200,255,0.9)";
-        ctx.beginPath();
-        ctx.arc(ox * r, -r * 0.95 + fall, r * 0.15, 0, Math.PI * 2);
-        ctx.fill();
       }
     }
     ctx.restore();
   }
 
   private drawCrashAftermath(state: FrameState, u: number): void {
-    const { ctx, W } = this;
-    // fireball core: white-hot expanding bloom
-    if (this.explosion && this.explosion.t < 0.4) {
-      const t = this.explosion.t / 0.4;
-      const radius = (26 + t * 78) * u;
-      const fg = ctx.createRadialGradient(
-        this.explosion.x, this.explosion.y, 2,
-        this.explosion.x, this.explosion.y, radius,
-      );
-      fg.addColorStop(0, `rgba(255,252,235,${0.95 * (1 - t)})`);
-      fg.addColorStop(0.35, `rgba(255,190,90,${0.75 * (1 - t)})`);
-      fg.addColorStop(1, "rgba(255,90,40,0)");
-      ctx.fillStyle = fg;
-      ctx.beginPath();
-      ctx.arc(this.explosion.x, this.explosion.y, radius, 0, Math.PI * 2);
-      ctx.fill();
+    const { ctx } = this;
+    const e = this.explosion;
+    if (e && e.t < 0.5) {
+      // blocky expanding shock squares
+      const t = e.t / 0.5;
+      for (let i = 0; i < 3; i++) {
+        const half = (14 + t * (60 + i * 30)) * u;
+        ctx.globalAlpha = Math.max(0, 0.8 * (1 - t));
+        ctx.strokeStyle = ["#fff3c4", "#ffb02e", "#ff6a4d"][i];
+        ctx.lineWidth = (6 - i * 1.5) * u;
+        ctx.strokeRect(e.x - half, e.y - half, half * 2, half * 2);
+      }
+      ctx.globalAlpha = 1;
     }
-    // falling wreckage halves
-    if (this.explosion && this.explosion.t < 2.2) {
-      const t = this.explosion.t;
-      const e = this.explosion;
+    // tumbling wreckage: chunky rect clusters
+    if (e && e.t < 2.2) {
+      const t = e.t;
       ctx.save();
       ctx.translate(e.x - 14 * u + t * 30 * u, e.y + t * t * 160 * u);
       ctx.rotate(t * 2.4);
       ctx.fillStyle = "#5a6285";
       ctx.fillRect(-14 * u, -10 * u, 20 * u, 34 * u);
+      ctx.fillStyle = "#2a2f4a";
+      ctx.fillRect(-14 * u, 14 * u, 20 * u, 10 * u);
       ctx.restore();
       ctx.save();
       ctx.translate(e.x + 16 * u - t * 44 * u, e.y - 20 * u + t * t * 190 * u);
       ctx.rotate(-t * 3.1);
       ctx.fillStyle = "#e0455a";
-      ctx.beginPath();
-      ctx.moveTo(-10 * u, 0); ctx.lineTo(10 * u, 0); ctx.lineTo(0, -22 * u);
-      ctx.closePath(); ctx.fill();
+      ctx.fillRect(-10 * u, -8 * u, 20 * u, 16 * u);
+      ctx.fillStyle = "#a92f42";
+      ctx.fillRect(-10 * u, 0, 20 * u, 8 * u);
       ctx.restore();
     }
-    // lingering smoke
-    if (this.explosion && this.explosion.t < 1.4 && !this.reducedMotion) {
+    // lingering smoke: chunky alpha squares
+    if (e && e.t < 1.4 && !this.reducedMotion) {
       for (let i = 0; i < 3; i++) {
-        const t = this.explosion.t;
+        const t = e.t;
         ctx.fillStyle = `rgba(90,95,130,${0.35 * (1 - t / 1.4)})`;
-        ctx.beginPath();
-        ctx.arc(this.explosion.x + Math.sin(i * 2.1 + t * 3) * 20 * u, this.explosion.y - t * 60 * u - i * 18 * u, (14 + t * 26) * u, 0, Math.PI * 2);
-        ctx.fill();
+        const s = (14 + t * 26) * u;
+        ctx.fillRect(
+          e.x + Math.sin(i * 2.1 + t * 3) * 20 * u - s / 2,
+          e.y - t * 60 * u - i * 18 * u - s / 2, s, s,
+        );
       }
     }
-    void W; void state;
+    void state;
   }
 
-  private drawEjectee(u: number): void {
+  private drawEjectee(u: number, bk: number): void {
     const { ctx } = this;
     const e = this.eject;
     if (!e) return;
     ctx.save();
     if (!e.landed) {
-      // parachute
+      // blocky parachute canopy
       const sway = Math.sin(this.time * 3) * 0.12;
       ctx.translate(e.x, e.y);
       ctx.rotate(sway);
+      const cw = 56 * u;
       ctx.fillStyle = "#ffd23f";
-      ctx.beginPath();
-      ctx.arc(0, -34 * u, 26 * u, Math.PI, 0);
-      ctx.closePath(); ctx.fill();
+      ctx.fillRect(-cw / 2, -52 * u, cw, 12 * u);
+      ctx.fillRect(-cw / 2 + 8 * u, -64 * u, cw - 16 * u, 12 * u);
       ctx.fillStyle = "#e0455a";
-      ctx.beginPath();
-      ctx.arc(0, -34 * u, 26 * u, Math.PI * 1.25, Math.PI * 1.75);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = "rgba(40,40,70,0.8)";
-      ctx.lineWidth = 1.5 * u;
+      ctx.fillRect(-10 * u, -64 * u, 20 * u, 24 * u);
+      ctx.fillStyle = "rgba(40,40,70,0.8)";
       for (const s of [-1, -0.4, 0.4, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(s * 24 * u, -36 * u);
-        ctx.lineTo(s * 8 * u, -8 * u);
-        ctx.stroke();
+        ctx.fillRect(s * 22 * u - u, -52 * u, 2 * u, 44 * u);
       }
-      this.drawCopilotDazed(0, 0, 13 * u);
+      this.drawPilotSprite(0, 0, 15 * bk, true);
     } else {
-      // landed, dazed: X eyes + circling stars
-      this.drawCopilotDazed(e.x, e.y, 13 * u);
-      ctx.strokeStyle = "#ffd23f";
-      ctx.lineWidth = 2 * u;
+      // landed, dazed: the Friend with X eyes + circling square sparkles
+      this.drawPilotSprite(e.x, e.y, 15 * bk, true);
+      ctx.fillStyle = "#ffd23f";
       for (let i = 0; i < 3; i++) {
         const a = this.time * 2.4 + (i * Math.PI * 2) / 3;
-        const sx = e.x + Math.cos(a) * 22 * u, sy = e.y - 26 * u + Math.sin(a) * 6 * u;
-        ctx.beginPath();
-        for (let k = 0; k < 5; k++) {
-          const aa = (k * Math.PI * 2) / 5 - Math.PI / 2;
-          const rr = k % 2 === 0 ? 5 * u : 2.2 * u;
-          const px = sx + Math.cos(aa) * rr, py = sy + Math.sin(aa) * rr;
-          if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-        }
-        ctx.closePath(); ctx.stroke();
+        const sx = e.x + Math.cos(a) * 24 * u;
+        const sy = e.y - 30 * u + Math.sin(a) * 6 * u;
+        const s = 5 * u;
+        ctx.fillRect(sx - s / 2, sy - s / 2, s, s);
       }
-      // dust puff settled
+      // settled dust: flat squares
       ctx.fillStyle = "rgba(120,125,160,0.3)";
-      ctx.beginPath();
-      ctx.ellipse(e.x, e.y + 14 * u, 26 * u, 8 * u, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(e.x - 26 * u, e.y + 12 * u, 52 * u, 6 * u);
     }
     ctx.restore();
   }
 
-  private drawCopilotDazed(x: number, y: number, r: number): void {
-    const { ctx } = this;
-    ctx.save();
-    ctx.translate(x, y);
-    const bodyG = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.2, 0, 0, r * 1.2);
-    bodyG.addColorStop(0, "#a8ffdf");
-    bodyG.addColorStop(1, "#4fd6a5");
-    ctx.fillStyle = bodyG;
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "#0c2b22";
-    ctx.lineWidth = r * 0.14;
-    ctx.lineCap = "round";
-    for (const s of [-1, 1]) {
-      const ex = s * r * 0.36, ey = -r * 0.05, er = r * 0.2;
-      ctx.beginPath();
-      ctx.moveTo(ex - er, ey - er); ctx.lineTo(ex + er, ey + er);
-      ctx.moveTo(ex + er, ey - er); ctx.lineTo(ex - er, ey + er);
-      ctx.stroke();
-    }
-    // wavy mouth
-    ctx.beginPath();
-    for (let i = 0; i <= 6; i++) {
-      const px = -r * 0.3 + (i * r * 0.6) / 6;
-      const py = r * 0.5 + (i % 2 === 0 ? -r * 0.08 : r * 0.08);
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-    // tongue lolling out
-    ctx.fillStyle = "#e0708a";
-    ctx.beginPath();
-    ctx.ellipse(r * 0.12, r * 0.72, r * 0.14, r * 0.2, 0.25, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#0c2b22";
-    ctx.lineWidth = r * 0.07;
-    ctx.beginPath();
-    ctx.moveTo(r * 0.12, r * 0.62);
-    ctx.lineTo(r * 0.12, r * 0.82);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  private drawParticles(u: number): void {
+  /** All particles are chunky spinning squares. */
+  private drawParticles(): void {
     const { ctx } = this;
     for (const p of this.particles) {
       const t = p.life / p.maxLife;
       ctx.globalAlpha = Math.max(0, t);
       ctx.fillStyle = p.color;
-      if (p.shape === "rect") {
+      const s = Math.max(1, p.size * (0.4 + 0.6 * t));
+      if (p.vr !== 0) {
         ctx.save();
         ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot ?? 0);
-        const w = p.size * (0.5 + 0.5 * t);
-        ctx.fillRect(-w / 2, -w / 4, w, w / 2);
+        ctx.rotate(p.rot);
+        ctx.fillRect(-s / 2, -s / 2, s, s);
         ctx.restore();
       } else {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.max(0.5, p.size * (0.4 + 0.6 * t)), 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
       }
     }
     ctx.globalAlpha = 1;
-    void u;
   }
 
   private drawCountdown(state: FrameState, u: number): void {
@@ -915,20 +899,24 @@ export class MoonshotScene {
     ctx.translate(W / 2, H * 0.34);
     ctx.scale(scale, scale);
     ctx.globalAlpha = 0.35 + 0.65 * frac;
-    ctx.font = `900 ${84 * u}px system-ui, sans-serif`;
+    ctx.font = `${84 * u}px "Press Start 2P", "Courier New", monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.shadowColor = "#38e1ff";
-    ctx.shadowBlur = 30 * u;
+    ctx.fillStyle = "#eaf6ff";
+    // hard pixel shadow (no blur)
+    ctx.fillStyle = "#0a0e24";
+    ctx.fillText(String(n), 4 * u, 4 * u);
     ctx.fillStyle = "#eaf6ff";
     ctx.fillText(String(n), 0, 0);
     ctx.restore();
-    // "GET READY" label
+    // "GET READY" label in pixel font
     ctx.save();
-    ctx.font = `700 ${20 * u}px system-ui, sans-serif`;
+    ctx.font = `${20 * u}px "Press Start 2P", "Courier New", monospace`;
     ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(234,246,255,0.85)";
-    ctx.fillText("GET READY", W / 2, H * 0.34 + 70 * u);
+    ctx.fillStyle = "#0a0e24";
+    ctx.fillText("GET READY", W / 2 + 2 * u, H * 0.34 + 72 * u + 2 * u);
+    ctx.fillStyle = "rgba(234,246,255,0.9)";
+    ctx.fillText("GET READY", W / 2, H * 0.34 + 72 * u);
     ctx.restore();
   }
 }
