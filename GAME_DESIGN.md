@@ -34,21 +34,30 @@ Persistent-for-session dashboard, always visible:
 - "Burn ticker": every crash adds to a global burned counter with a flame animation.
 These numbers ARE the submission's argument for the category.
 
-## Art direction — "neon midnight launch"
-- Deep indigo night sky, twinkling stars, drifting clouds, distant city lights below.
-- Art-deco launch tower on the left; chunky cartoon rocket center stage.
-- The multiplier curve = the rocket's burning comet trail, drawn live. Palette shifts
-  with risk: cyan → gold → molten red.
-- Co-pilot: an ORIGINAL cute blob creature (big eyes, tiny pilot helmet, scarf that
-  flutters with speed). Do NOT copy actual Rare Friends NFT artwork — original character only.
-- Co-pilot expressions shift with the multiplier: chill → thrilled → terrified.
+## Art direction — "voxel midnight launch"
+- Deep indigo night sky, chunky square-pixel stars (some twinkle), blocky
+  drifting clouds, distant city lights below.
+- Art-deco launch tower on the left; chunky voxel rocket center stage — every
+  block is shaded like a little 3D cube.
+- The multiplier curve = the rocket's blocky comet trail, drawn live as chunky
+  squares. Palette shifts with risk: cyan → gold → molten red.
+- Pilot: the player's ACTUAL selected Friend. Its canonical on-chain 16x16
+  sprite (idle-up frames, animated ~6fps) is rendered as voxels tinted by its
+  family palette (9 families → 9 distinct hues), riding on top of the rocket.
+  If the chain sprite read is unavailable, a deterministic generative pixel
+  pilot is used instead — the game always works offline.
+- Crash: the Friend ejects with a blocky parachute and lands dazed (X eyes,
+  wobble). Funny, never punishing.
+- Pixel font (Press Start 2P, bundled) for the multiplier, buttons, headings;
+  chunky 3px-bordered panels with hard offset shadows, zero blur.
 
 ## Juice & feel (this is the bar)
 - Launch: countdown beeps, engine rumble, screen shake on liftoff.
 - Climb: everything vibrates slightly; slow-mo effect past 5x.
-- Cash out: one frozen beat, then golden shockwave + coin fountain + co-pilot moonwalk.
-- Crash: fireball, RF coins scattering, co-pilot ejects with a tiny parachute,
-  lands dazed (X eyes), "AGAIN?" prompt pulses. Funny, never punishing.
+- Cash out: one frozen beat, then expanding shockwave squares + chunky gold coin fountain + pixel confetti.
+- Crash: blocky fireball, RF coin squares scattering, the Friend pilot ejects with a
+  tiny blocky parachute, lands dazed (X eyes, wobble), "FLY AGAIN?" prompt.
+  Funny, never punishing.
 
 ## Audio (all synthesized with WebAudio, zero assets)
 - Countdown beeps → launch rumble (filtered noise) → rising whine pitched to the multiplier

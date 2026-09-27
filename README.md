@@ -33,5 +33,4 @@ verification in `games/moonshot/README.md`. All RF simulated and labeled as demo
 
 ## Credits
 
-All visuals drawn in code (Canvas 2D), all audio synthesized live (WebAudio).
-No external assets. No third-party character artwork — the co-pilot is an original character.
+All scene art drawn in code (Canvas 2D voxel/chunky-pixel style), all audio synthesized live (WebAudio). The pilot is the player's own selected Friend's canonical on-chain sprite, rendered client-side. Pixel font is Press Start 2P (OFL-licensed, bundled as woff2).
