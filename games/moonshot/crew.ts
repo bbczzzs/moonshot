@@ -51,6 +51,8 @@ export interface CrewMember {
   status: CrewStatus;
   cashedAt: number | null;
   payout: bigint;
+  cans: number; // fuel cans thrown at this rider this launch
+  myCans: number; // ...of which the player threw
 }
 
 export const MAX_CREW = 8;
@@ -92,6 +94,8 @@ export function makeCrew(rand: () => number, boardingSeconds: number, excludeId?
       status: "boarding" as CrewStatus,
       cashedAt: null,
       payout: 0n,
+      cans: 0,
+      myCans: 0,
     };
   });
 }

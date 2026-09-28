@@ -1,6 +1,6 @@
 # Moonshot 🚀
 
-**A live crash game for the Rare Friends Vibeathon (Token Activity).** Your Rare Friend pilots the rocket, a crew of real Generations Friends hitch a ride, and **10% of every stake burns as rocket fuel**, win or lose. Built with FriendSDK **v0.1.2**.
+**A live crash game for the Rare Friends Vibeathon (Token Activity).** Your Rare Friend pilots the rocket, a crew of real Generations Friends hitch a ride, and RF burns on every launch: **10% fuel** (20% on Supernova launches), plus **fuel cans**, **Burn for glory** and the **Hangar**. Built with FriendSDK **v0.1.2**.
 
 ![Moonshot gameplay](media/moonshot-demo.gif)
 
@@ -8,17 +8,21 @@
 
 🎬 [Full-quality recording (MP4)](media/moonshot-demo.mp4)
 
-| Liftoff | Flight | Crash | Hangar |
+| Liftoff | Flight + fuel cans | Supernova launch | Flames tab |
 |---|---|---|---|
-| ![Liftoff](media/liftoff.png) | ![Flight](media/flight.png) | ![Crash](media/crash.png) | ![Hangar](media/hangar.png) |
+| ![Liftoff](media/liftoff.png) | ![Flight](media/flight.png) | ![Supernova](media/supernova.png) | ![Flames](media/flames.png) |
 
 ## In one minute
 
 - **New launch every ~15 s.** Board during a 6-second window, ride the multiplier, eject before it crashes.
 - **Every launch burns 10% of every stake as fuel.** That's the whole house edge; the house keeps nothing. Ejecting at any target returns exactly 90% on average (`P(crash ≥ m) = 1/m`).
 - **Crashes feed the Launch Pool**, which pays everyone who ejected.
+- **Fuel cans:** throw 1 RF (**burned 100%**) at any rider mid-flight. They get a flame aura, and the crowd throws cans too.
+- **Supernova launches:** every 300 RF burned by all pilots, the next launch burns **20% fuel**, turns the sky purple and pays **3× Flame XP**.
+- **Burn for glory:** optionally burn 10% of every payout for 3× XP.
 - **Hangar:** rocket skins and exhaust trails, **100% burned**, cosmetic only.
-- **Auto eject + auto-launch** keep the spend loop running hands-free. A furnace meter tracks RF burned per minute.
+- **Flame rank + Hall of Flames:** Spark → Ember → Blaze → Inferno → Supernova, plus a burn leaderboard.
+- **Auto eject + auto-launch** keep the spend loop running hands-free.
 - **Rare Friends house style.** Drawn in the FriendSDK game palette with ink outlines and dither shading, on a floating meadow island, with the SDK frame's paper-and-ink UI.
 - **Real Friends everywhere.** Your pilot is read live with the SDK sprite reader, and the crew are real Generations Friends' on-chain sprites.
 

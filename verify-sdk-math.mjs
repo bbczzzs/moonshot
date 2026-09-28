@@ -2,7 +2,7 @@
 // of truth) and simulating 500,000 launches with a seeded RNG.
 //   node verify-sdk-math.mjs
 import {
-  drawCrashPoint, multiplierAt, timeToMultiplier, payoutOf, fuelOf, Ledger, ONE_RF,
+  drawCrashPoint, multiplierAt, timeToMultiplier, payoutOf, fuelOf, Ledger, ONE_RF, NOVA_FUEL_BPS, rankOf,
 } from "./games/moonshot/economy.ts";
 
 function mulberry32(a) {
@@ -47,4 +47,15 @@ for (const m of targets) {
   const r = Number((ret[m] * 10000n) / (BigInt(N) * stake)) / 100;
   if (Math.abs(r - 90) > 0.8) throw new Error(`RTP off at ${m}x: ${r}%`);
 }
+// Extra sinks: Supernova fuel, fuel cans and Burn for Glory.
+const g = new Ledger();
+g.reserve(100n * ONE_RF);
+const nova = g.ignite(100n * ONE_RF, NOVA_FUEL_BPS);
+if (nova.fuel !== 20n * ONE_RF) throw new Error("supernova fuel mismatch");
+const net = g.cashOut(nova, 2, true); // gross 160, glory burns 16
+if (net !== 144n * ONE_RF || g.stats.gloryBurned !== 16n * ONE_RF) throw new Error("glory burn mismatch");
+if (!g.throwCan() || g.stats.canBurned !== ONE_RF) throw new Error("fuel can mismatch");
+if (g.totalBurned !== 37n * ONE_RF) throw new Error("total burn mismatch");
+if (rankOf(0).name !== "Spark" || rankOf(80).name !== "Blaze" || rankOf(9999).next !== null) throw new Error("rank ladder mismatch");
+console.log("supernova 20% fuel, glory 10% of payout, fuel can 1 RF, ranks: ok");
 console.log("MATH PASS");

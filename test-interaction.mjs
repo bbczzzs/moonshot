@@ -1,7 +1,8 @@
 // Focused interaction test for Moonshot using the SDK's automated harness
 // (mock wallet + sample Friend #7730). Exercises boarding, a full flight with
-// cash-out (or crash), the runtime pause lifecycle, a hangar burn and
-// auto-launch, and fails on any browser/runtime error.
+// fuel cans and cash-out (or crash), the runtime pause lifecycle, Burn for
+// Glory, a hangar burn, the Flames tab and auto-launch, and fails on any
+// browser/runtime error.
 //   node test-interaction.mjs [width]
 import { testGame } from "@rarefriends/friendsdk/testing";
 
@@ -27,6 +28,14 @@ await testGame("./games/moonshot", {
     await Promise.race([cash.waitFor({ timeout: 15000 }), crashed.waitFor({ timeout: 15000 })]);
 
     if (await cash.isVisible()) {
+      // Fuel cans: each throw burns exactly 1 RF from the balance.
+      const can = game.getByRole("button", { name: /Throw a fuel can/ }).first();
+      if (await can.isVisible()) {
+        const b0 = Number((await balance.innerText()).replace(/,/g, ""));
+        await can.click();
+        const b1 = Number((await balance.innerText()).replace(/,/g, ""));
+        if (Math.abs(b0 - 1 - b1) > 0.001) throw new Error(`fuel can burn mismatch ${b0} -> ${b1}`);
+      }
       // Pause lifecycle: opening a runtime menu mid-flight freezes the round.
       await page.getByRole("button", { name: "Open Friend wallet" }).click();
       await game.locator('section[aria-label="Moonshot"][aria-busy="true"]').waitFor({ timeout: 5000 });
@@ -58,14 +67,17 @@ await testGame("./games/moonshot", {
     const after = Number((await balance.innerText()).replace(/,/g, ""));
     if (Math.abs(before - 25 - after) > 0.001) throw new Error(`hangar burn mismatch ${before} -> ${after}`);
 
-    // Stats show the burn; auto-launch books the next boarding.
-    await game.getByRole("tab", { name: "Stats" }).click();
-    await game.getByText("You burned (hangar)").waitFor();
-    await game.getByRole("button", { name: /Auto-launch/ }).click();
-    await game.getByRole("button", { name: /Stop auto-launch/ }).waitFor();
-    await game.getByText("LAUNCH IN", { exact: true }).waitFor({ timeout: 20000 });
+    // Flames tab shows the burn breakdown, rank and Hall of Flames.
+    await game.getByRole("tab", { name: "Flames" }).click();
+    await game.getByText("You burned", { exact: true }).waitFor();
+    await game.getByText("Hall of Flames").waitFor();
+
+    // Burn for Glory + auto eject + auto-launch: the next launch books itself.
+    await game.getByRole("checkbox", { name: "Burn for glory" }).check();
+    await game.getByRole("checkbox", { name: "Auto-launch" }).check();
+    await game.getByText(/SUPERNOVA LAUNCH|LAUNCH IN/).first().waitFor({ timeout: 20000 });
     await game.getByRole("button", { name: /YOU'RE BOARDING|CASH OUT/ }).waitFor({ timeout: 8000 });
-    await game.getByRole("button", { name: /Stop auto-launch/ }).click();
+    await game.getByRole("checkbox", { name: "Auto-launch" }).uncheck();
 
     // Sound toggle.
     await game.getByRole("button", { name: "Sound on" }).click();
@@ -73,4 +85,4 @@ await testGame("./games/moonshot", {
   },
 });
 
-console.log(`INTERACTION PASS at ${width}px: boarding, flight, pause, hangar burn and auto-launch with no errors`);
+console.log(`INTERACTION PASS at ${width}px: boarding, fuel cans, flight, pause, hangar burn, Flames tab, glory and auto-launch with no errors`);

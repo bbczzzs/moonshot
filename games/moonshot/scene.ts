@@ -30,6 +30,7 @@ export interface SceneState {
   crew: SceneCrew[]; // members currently in their seats
   playerAboard: boolean;
   playerWatching: boolean; // player sits out: shown at mission control
+  supernova: boolean; // Supernova launch: 20% fuel, purple sky, rainbow flame
 }
 
 type Shape = "puff" | "spark" | "heart" | "star" | "chunk" | "ring";
@@ -50,6 +51,9 @@ interface Debris {
 }
 
 interface Star { x: number; y: number; layer: number; tw: number; }
+
+/** A fuel can in flight toward a rider (seat -1 = the player's cockpit). */
+interface Can { seat: number; t: number; dur: number; x0: number; y0: number; mine: boolean; }
 
 // Rare Friends palette (FriendSDK PALETTE + GAME_PALETTE).
 export const K = "#000000";
@@ -140,6 +144,9 @@ export class MoonshotScene {
   private particles: Particle[] = [];
   private chutes: Chute[] = [];
   private debris: Debris[] = [];
+  private cans: Can[] = [];
+  private aura = new Map<number, number>(); // seat (-1 = player) -> seconds left
+  private nova = false;
   private boom = -1; // seconds since the crash burst, <0 = none
   private boomAt = { x: 0, y: 0 };
   private shake = 0;
@@ -233,6 +240,15 @@ export class MoonshotScene {
     this.puffs(p.x, p.y + 14, 3, 1);
   }
 
+  /** Throw a fuel can at a seat (-1 = the player's cockpit). */
+  throwCan(seat: number, mine: boolean): void {
+    const fromLeft = Math.random() < 0.5;
+    this.cans.push({
+      seat, t: 0, dur: 0.55 + Math.random() * 0.2, mine,
+      x0: fromLeft ? -6 : this.W + 6, y0: this.H * (0.35 + Math.random() * 0.5),
+    });
+  }
+
   ejectCrew(c: SceneCrew, multiplier: number): void {
     const p = this.seatPos(c.seat);
     this.chutes.push({
@@ -311,8 +327,11 @@ export class MoonshotScene {
       this.debris = [];
       this.particles = [];
       this.boom = -1;
+      this.cans = [];
+      this.aura.clear();
     }
     this.lastPhase = s.phase;
+    this.nova = s.supernova;
 
     const liftT = s.phase === "flying" ? Math.min(1, s.phaseT / 1.6) : s.phase === "boarding" ? 0 : 1;
     const ease = 1 - Math.pow(1 - liftT, 3);
@@ -334,6 +353,8 @@ export class MoonshotScene {
       this.drawFlame(s);
       this.drawRocket(s);
       this.drawCrew(s);
+      this.drawAuras(s, dt);
+      this.stepCans(dt);
     }
     this.stepChutes(dt, scrollV);
     this.stepDebris(dt);
@@ -374,7 +395,7 @@ export class MoonshotScene {
   private drawSky(): void {
     const img = this.sky!;
     const px = new Uint32Array(img.data.buffer);
-    const ink = 0xff111111, paper = 0xffffffff;
+    const ink = this.nova ? 0xff5a1f3d : 0xff111111, paper = 0xffffffff;
     for (let y = 0; y < this.H; y++) {
       const d = this.dark(y) * 16;
       const row = y * this.W, by = (y & 3) * 4;
@@ -395,7 +416,7 @@ export class MoonshotScene {
       if (y < 0 || y >= this.H || this.dark(y) < 0.7) continue;
       const tw = Math.sin(this.time * (1.3 + st.layer) + st.tw);
       if (st.layer === 0 && tw < -0.3) continue;
-      g.fillStyle = st.layer === 1 && st.tw < 1 ? SUN : WHITE;
+      g.fillStyle = this.nova ? [SUN, CORAL, SIGNAL, WHITE, LILAC][Math.floor(st.tw) % 5] : st.layer === 1 && st.tw < 1 ? SUN : WHITE;
       g.fillRect(st.x, y, 1, 1);
       if (st.layer === 2 && tw > 0.8) { g.fillRect(st.x - 1, y, 3, 1); g.fillRect(st.x, y - 1, 1, 3); }
     }
@@ -749,7 +770,9 @@ export class MoonshotScene {
   // ---- rocket ----
   private drawFlame(s: SceneState): void {
     const g = this.b;
-    const cols = this.trail.flame;
+    const rainbow = [SIGNAL, SUN, CORAL, LILAC, POND];
+    const tick = Math.floor(this.time * 10);
+    const cols = this.nova ? [WHITE, rainbow[tick % 5], rainbow[(tick + 2) % 5]] : this.trail.flame;
     const cx = this.cx, by = this.rocketY;
     const flying = s.phase === "flying";
     const len = flying
@@ -951,6 +974,59 @@ export class MoonshotScene {
       star(0.7, CORAL);
       star(0.38, WHITE);
       if (k < 0.5) this.sign("BOOM", this.boomAt.x, this.boomAt.y - 4, "center", WHITE, K);
+    }
+  }
+
+  private seatCenter(seat: number): { x: number; y: number } {
+    if (seat < 0) { const c = this.cockpit(); return { x: c.x, y: c.y }; }
+    const p = this.seatPos(seat);
+    return { x: p.x, y: p.y + 7 };
+  }
+
+  private stepCans(dt: number): void {
+    const g = this.b;
+    const keep: Can[] = [];
+    for (const c of this.cans) {
+      c.t += dt;
+      const k = Math.min(1, c.t / c.dur);
+      const to = this.seatCenter(c.seat);
+      const x = Math.round(c.x0 + (to.x - c.x0) * k);
+      const y = Math.round(c.y0 + (to.y - c.y0) * k - Math.sin(k * Math.PI) * 28);
+      if (k >= 1) {
+        this.sparks(to.x, to.y, 10, [SUN, CORAL, WHITE]);
+        this.aura.set(c.seat, 2.6);
+        if (c.mine) this.puffs(to.x, to.y, 2, 0.8, 20);
+        continue;
+      }
+      // Fuel can: coral body, white band, ink outline, spinning.
+      const flip = Math.floor(c.t * 12) % 2;
+      g.fillStyle = K; g.fillRect(x - 3, y - 4, 7, 9);
+      g.fillStyle = c.mine ? SIGNAL : CORAL; g.fillRect(x - 2, y - 3, 5, 7);
+      g.fillStyle = WHITE; g.fillRect(x - 2, y - 1 + flip, 5, 1);
+      g.fillStyle = K; g.fillRect(x - 1, y - 6, 2, 2);
+      keep.push(c);
+    }
+    this.cans = keep;
+  }
+
+  private drawAuras(s: SceneState, dt: number): void {
+    const g = this.b;
+    for (const [seat, left] of [...this.aura]) {
+      const rest = left - dt;
+      if (rest <= 0) { this.aura.delete(seat); continue; }
+      this.aura.set(seat, rest);
+      if (seat >= 0 && !s.crew.some(c => c.seat === seat)) continue;
+      if (seat < 0 && !s.playerAboard) continue;
+      const c = this.seatCenter(seat);
+      const r = seat < 0 ? 15 : 11;
+      const n = 18;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + this.time * 3;
+        const flick = Math.sin(this.time * 20 + i * 1.7) > 0 ? 1 : 0;
+        const px = Math.round(c.x + Math.cos(a) * r), py = Math.round(c.y + Math.sin(a) * r * 0.9);
+        g.fillStyle = K; g.fillRect(px - 1, py - 1 - flick, 3, 3 + flick);
+        g.fillStyle = i % 3 === 0 ? CORAL : SUN; g.fillRect(px, py - flick, 1, 1 + flick);
+      }
     }
   }
 

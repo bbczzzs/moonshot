@@ -21,6 +21,10 @@
 
 export const ONE_RF = 10n ** 18n;
 export const FUEL_BPS = 1000n; // 10% of every stake is burned at ignition
+export const NOVA_FUEL_BPS = 2000n; // Supernova launches burn 20%
+export const CAN_PRICE = 1n * (10n ** 18n); // a fuel can: 1 RF, burned 100%
+export const GLORY_BPS = 1000n; // Burn for Glory: 10% of each payout
+export const NOVA_EVERY = 300n * (10n ** 18n); // community furnace RF per Supernova
 export const GROWTH_RATE = 0.12;
 export const STARTING_BALANCE = 1000n * ONE_RF;
 export const MIN_STAKE = 1n * ONE_RF;
@@ -43,8 +47,8 @@ export function floorMult(m: number): number {
   return Math.floor(m * 100 + 1e-9) / 100;
 }
 
-export function fuelOf(stake: bigint): bigint {
-  return (stake * FUEL_BPS) / 10000n;
+export function fuelOf(stake: bigint, bps: bigint = FUEL_BPS): bigint {
+  return (stake * bps) / 10000n;
 }
 
 export function payoutOf(riding: bigint, multiplier: number): bigint {
@@ -62,6 +66,8 @@ export interface PlayerStats {
   volume: bigint;
   fuelBurned: bigint;
   hangarBurned: bigint;
+  canBurned: bigint;
+  gloryBurned: bigint;
   paidOut: bigint;
   lostToPool: bigint;
   biggestWin: bigint;
@@ -74,6 +80,8 @@ export const emptyStats = (): PlayerStats => ({
   volume: 0n,
   fuelBurned: 0n,
   hangarBurned: 0n,
+  canBurned: 0n,
+  gloryBurned: 0n,
   paidOut: 0n,
   lostToPool: 0n,
   biggestWin: 0n,
@@ -91,7 +99,8 @@ export class Ledger {
   }
 
   get totalBurned(): bigint {
-    return this.stats.fuelBurned + this.stats.hangarBurned;
+    const s = this.stats;
+    return s.fuelBurned + s.hangarBurned + s.canBurned + s.gloryBurned;
   }
 
   /** Reserve a stake for the next launch (refundable until liftoff). */
@@ -106,16 +115,20 @@ export class Ledger {
   }
 
   /** Liftoff: the fuel burns, the rest rides. */
-  ignite(stake: bigint): Bet {
-    const fuel = fuelOf(stake);
+  ignite(stake: bigint, bps: bigint = FUEL_BPS): Bet {
+    const fuel = fuelOf(stake, bps);
     this.stats.rounds += 1;
     this.stats.volume += stake;
     this.stats.fuelBurned += fuel;
     return { stake, fuel, riding: stake - fuel };
   }
 
-  cashOut(bet: Bet, multiplier: number): bigint {
-    const payout = payoutOf(bet.riding, multiplier);
+  /** Returns what reaches the balance; with `glory`, 10% of the payout burns first. */
+  cashOut(bet: Bet, multiplier: number, glory = false): bigint {
+    const gross = payoutOf(bet.riding, multiplier);
+    const burn = glory ? (gross * GLORY_BPS) / 10000n : 0n;
+    this.stats.gloryBurned += burn;
+    const payout = gross - burn;
     this.balance += payout;
     this.stats.paidOut += payout;
     this.stats.wins += 1;
@@ -127,6 +140,14 @@ export class Ledger {
 
   crashed(bet: Bet): void {
     this.stats.lostToPool += bet.riding;
+  }
+
+  /** A fuel can thrown at a rider: 100% burned. */
+  throwCan(): boolean {
+    if (CAN_PRICE > this.balance) return false;
+    this.balance -= CAN_PRICE;
+    this.stats.canBurned += CAN_PRICE;
+    return true;
   }
 
   /** Hangar purchases burn 100%. */
@@ -159,3 +180,22 @@ export function fmtRf(value: bigint, maxDecimals = 2): string {
   }
   return (neg ? "-" : "") + s;
 }
+
+/** Flame ranks, earned with Flame XP (1 XP per RF burned; Glory and Supernova fuel earn 3). */
+export const RANKS: { name: string; xp: number }[] = [
+  { name: "Spark", xp: 0 },
+  { name: "Ember", xp: 20 },
+  { name: "Blaze", xp: 75 },
+  { name: "Inferno", xp: 250 },
+  { name: "Supernova", xp: 800 },
+];
+
+export function rankOf(xp: number): { index: number; name: string; next: number | null; progress: number } {
+  let i = 0;
+  while (i + 1 < RANKS.length && xp >= RANKS[i + 1].xp) i++;
+  const next = i + 1 < RANKS.length ? RANKS[i + 1].xp : null;
+  const progress = next === null ? 1 : (xp - RANKS[i].xp) / (next - RANKS[i].xp);
+  return { index: i, name: RANKS[i].name, next, progress };
+}
+
+export const toRf = (v: bigint): number => Number((v * 100n) / ONE_RF) / 100;
