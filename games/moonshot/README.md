@@ -80,11 +80,11 @@ Controls: **Space** bets, cancels or ejects. **H** ejects half. **F** throws a f
 - `node verify-sdk-math.mjs`: 500,000 simulated launches. Instant bust 1.00%. Return 89.97% / 90.08% / 89.99% / 89.68% at 1.5x / 2x / 5x / 10x targets. Fuel burn 10.00% of volume. Launch Pool in/out balanced. Supernova 20% fuel, Glory 10% of payout, fuel can 1 RF, ledger totals and the rank ladder asserted.
 - `node test-interaction.mjs 960` and `node test-interaction.mjs 390`: in the real sandboxed runtime with the SDK's mock wallet. Covers joining during boarding, liftoff, a fuel can burning exactly 1 RF, Eject half, pausing mid-flight (the multiplier freezes), ejecting (or a valid crash), crash history, a Hangar purchase burning exactly 25 RF, the Flames tab and missions, Burn for glory, auto-launch booking the next boarding, and the sound toggle. **PASS** at both widths, no browser errors.
 - `npm run typecheck`: strict TypeScript across all game sources, 0 errors.
+- **Real-wallet playtest: done** by the builder on the public GitHub Pages preview (Robinhood mainnet, owned hardwired Generations Friend).
 - `npx friendsdk check games/moonshot`: valid. `npx friendsdk test games/moonshot --width 1200` and `--width 360`: **PASS**.
 
 ## Known issues
 
-- A real-wallet playthrough of this version on the public preview is still to be confirmed by the builder.
 - Crew behaviour (stakes, targets, fuel cans) is simulated; the SDK has no multiplayer. The session burn and Hall of Flames include those simulated burns and are labelled as such.
 - `game.json` carries the placeholder chance-game definition the runtime schema requires. Moonshot runs its own documented ledger (`economy.ts`) and does not use the chance-game actions. Going live needs a round contract: a `burn()` of the fuel, cans and glory; a pool that escrows rides and pays ejectors; and a verifiable crash-point seed (Dice/VRF) committed before boarding closes.
 - Balances, cosmetics, XP and history reset on reload (the SDK sandbox has no storage).
