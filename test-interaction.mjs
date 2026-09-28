@@ -36,6 +36,15 @@ await testGame("./games/moonshot", {
         const b1 = Number((await balance.innerText()).replace(/,/g, ""));
         if (Math.abs(b0 - 1 - b1) > 0.001) throw new Error(`fuel can burn mismatch ${b0} -> ${b1}`);
       }
+      // Eject half: bank 50% now, the rest keeps flying.
+      const half = game.getByRole("button", { name: /Eject half/ });
+      if (await half.isVisible()) {
+        await half.click();
+        await Promise.race([
+          game.getByText(/Half banked at/).first().waitFor({ timeout: 3000 }),
+          crashed.waitFor({ timeout: 3000 }),
+        ]);
+      }
       // Pause lifecycle: opening a runtime menu mid-flight freezes the round.
       await page.getByRole("button", { name: "Open Friend wallet" }).click();
       await game.locator('section[aria-label="Moonshot"][aria-busy="true"]').waitFor({ timeout: 5000 });
@@ -71,6 +80,8 @@ await testGame("./games/moonshot", {
     await game.getByRole("tab", { name: "Flames" }).click();
     await game.getByText("You burned", { exact: true }).waitFor();
     await game.getByText("Hall of Flames").waitFor();
+    await game.getByText("Missions", { exact: true }).waitFor();
+    await game.getByText("Throw 10 fuel cans").waitFor();
 
     // Burn for Glory + auto eject + auto-launch: the next launch books itself.
     await game.getByRole("checkbox", { name: "Burn for glory" }).check();
@@ -85,4 +96,4 @@ await testGame("./games/moonshot", {
   },
 });
 
-console.log(`INTERACTION PASS at ${width}px: boarding, fuel cans, flight, pause, hangar burn, Flames tab, glory and auto-launch with no errors`);
+console.log(`INTERACTION PASS at ${width}px: boarding, fuel cans, eject half, flight, pause, hangar burn, Flames tab, missions, glory and auto-launch with no errors`);

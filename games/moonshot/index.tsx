@@ -25,6 +25,8 @@ import {
 } from "./economy";
 import { makeCrew, mulberry32, ROSTER, FAMILY_NAMES, FAMILY_COLORS, type CrewMember, type SpriteRows } from "./crew";
 import { SKINS, TRAILS } from "./looks";
+import { MISSIONS, emptyProgress, type MissionProgress } from "./missions";
+import { readRfSupply } from "./chain";
 import { MoonshotAudio } from "./audio";
 import { MoonshotScene, spriteCanvas, type SceneCrew } from "./scene";
 import { loadPilot, type PilotSprite } from "./pilot";
@@ -63,6 +65,7 @@ interface Round {
   cashedAt: number | null;
   payout: bigint;
   milestone: number;
+  half: { at: number; payout: bigint } | null; // Eject half: banked share of the ride
   burned: bigint; // everything burned this launch (fuel + cans + glory)
   pool: bigint; // riding RF lost to the Launch Pool this round
   myCans: number;
@@ -122,6 +125,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
   const autoRef = useRef({ cash: false, cashAt: 2, bet: false, betLeft: 0 as number, stake: 10n * ONE_RF, glory: false });
   const xpRef = useRef(0);
   const backerRef = useRef({ wins: 0, xp: 0 }); // backed riders who ejected safely
+  const missionsRef = useRef<MissionProgress>(emptyProgress());
   const roundRef = useRef<Round>(newRound(0));
   const toastId = useRef(0);
 
@@ -146,6 +150,9 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
   const [confirmBuy, setConfirmBuy] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ title: string; sub: string; kind: "win" | "burn" | "info" } | null>(null);
   const [message, setMessage] = useState("");
+  const [showIntro, setShowIntro] = useState(true);
+  const [rfSupply, setRfSupply] = useState<bigint | null>(null);
+  const [supplyState, setSupplyState] = useState<"idle" | "loading" | "failed">("idle");
 
   const rerender = () => setTick(t => (t + 1) % 1_000_000);
 
@@ -153,7 +160,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     return {
       n, phase: "boarding", phaseT: 0, multiplier: 1, crashPoint: 1, supernova: false,
       crew: [], bet: null, status: "none", cashedAt: null, payout: 0n, milestone: 0,
-      burned: 0n, pool: 0n, myCans: 0,
+      half: null, burned: 0n, pool: 0n, myCans: 0,
     };
   }
 
@@ -181,6 +188,30 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
       toast(`Flame rank up · ${after.name}`, "nova");
       audioRef.current?.milestone();
     }
+  }
+
+  /** Advance a session mission; completing one pays Flame XP, completing all unlocks a skin. */
+  function progress(id: string, amount = 1) {
+    const m = MISSIONS.find(x => x.id === id);
+    const p = missionsRef.current;
+    if (!m || p[id] >= m.goal) return;
+    p[id] = Math.min(m.goal, p[id] + amount);
+    if (p[id] < m.goal) return;
+    addXp(m.xp);
+    toast(`Mission complete · ${m.label} · +${m.xp} XP`, "nova");
+    if (MISSIONS.every(x => p[x.id] >= x.goal)) {
+      setOwned(o => new Set(o).add("astro"));
+      toast("All missions done · Astronaut skin unlocked", "nova");
+    }
+  }
+
+  /** On demand only: one read-only totalSupply() call on Robinhood mainnet. */
+  function loadSupply() {
+    setSupplyState("loading");
+    readRfSupply().then(v => {
+      setRfSupply(v);
+      setSupplyState(v === null ? "failed" : "idle");
+    });
   }
 
   // ---- identity + session ----
@@ -278,6 +309,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
       if (pausedRef.current) return;
       if (e.code === "Space") { e.preventDefault(); primary(); }
       else if (e.key === "f" || e.key === "F") throwCanAtRandom();
+      else if (e.key === "h" || e.key === "H") ejectHalf();
       else if (e.key === "m" || e.key === "M") toggleMute();
     };
     window.addEventListener("keydown", onKey);
@@ -360,6 +392,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
             backerRef.current.wins += 1;
             backerRef.current.xp += xp;
             addXp(xp);
+            progress("back3");
             toast(`★ Your backed rider #${c.friend.id} ejected at ${at.toFixed(2)}x · +${xp} backer XP`, "good");
           }
         }
@@ -419,6 +452,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     if (stake !== null) {
       r.bet = ledger.ignite(stake, bps);
       r.status = "riding";
+      if (r.supernova) progress("nova");
       addBurn(r.bet.fuel, true, r.supernova ? 3 : 1);
     }
     worldRef.current.launches += 1;
@@ -446,10 +480,12 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     r.phaseT = 0;
     setHistory(h => [r.crashPoint, ...h].slice(0, 10));
     const title = `CRASHED @ ${r.crashPoint.toFixed(2)}x`;
-    if (r.status === "burned" && r.bet) {
+    if (r.status === "burned" && r.bet && r.half) {
+      setBanner({ title, sub: `Half banked at ${r.half.at.toFixed(2)}x (${rf(r.half.payout)}) · the rest went to the Launch Pool`, kind: "burn" });
+    } else if (r.status === "burned" && r.bet) {
       setBanner({ title, sub: `Your ride of ${rf(r.bet.riding)} went to the Launch Pool`, kind: "burn" });
     } else if (r.status === "ejected" && r.bet) {
-      setBanner({ title, sub: `You ejected at ${r.cashedAt?.toFixed(2)}x · ${rf(r.payout)}`, kind: "win" });
+      setBanner({ title, sub: r.half ? `Half at ${r.half.at.toFixed(2)}x + rest at ${r.cashedAt?.toFixed(2)}x · ${rf(r.half.payout + r.payout)}` : `You ejected at ${r.cashedAt?.toFixed(2)}x · ${rf(r.payout)}`, kind: "win" });
     } else {
       setBanner({ title, sub: `${rf(r.burned)} burned this launch`, kind: "info" });
     }
@@ -469,7 +505,29 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     r.payout = payout;
     sceneRef.current?.ejectPlayer(m);
     audioRef.current?.cashOut();
+    if (m >= 3) progress("eject3");
+    if (r.half) progress("half");
+    setShowIntro(false);
     toast(withGlory ? `Ejected ${m.toFixed(2)}x · ${rf(payout)} · burned ${rf(gross - payout)} for glory` : `Ejected ${m.toFixed(2)}x · ${rf(payout)}`, "good");
+    rerender();
+  }
+
+  /** Bank half the ride now; the other half keeps flying. */
+  function ejectHalf() {
+    const r = roundRef.current;
+    if (r.phase !== "flying" || r.status !== "riding" || !r.bet || r.half || pausedRef.current) return;
+    const m = floorMult(r.multiplier);
+    if (m < 1.01 || m > r.crashPoint) return;
+    const withGlory = autoRef.current.glory;
+    const half = r.bet.riding / 2n;
+    const gross = payoutOf(half, m);
+    const payout = ledgerRef.current.cashOutHalf(r.bet, m, withGlory);
+    addBurn(gross - payout, true, 3);
+    r.half = { at: m, payout };
+    if (m >= 3) progress("eject3");
+    sceneRef.current?.ejectCargo(m);
+    audioRef.current?.eject();
+    toast(`Half banked at ${m.toFixed(2)}x · ${rf(payout)} · rest still flying`, "good");
     rerender();
   }
 
@@ -482,6 +540,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     r.myCans += 1;
     addBurn(CAN_PRICE, true);
     sceneRef.current?.throwCan(c.seat, true);
+    progress("cans10");
     audioRef.current?.unlock();
     audioRef.current?.burn();
     rerender();
@@ -499,6 +558,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     if (!ledgerRef.current.reserve(stake)) { setMessage(`Not enough demo RF — balance ${rf(ledgerRef.current.balance)}.`); return; }
     reservedRef.current = stake;
     setMessage("");
+    setShowIntro(false);
     audioRef.current?.unlock();
     audioRef.current?.tick(720);
     rerender();
@@ -554,6 +614,8 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
   }
 
   function buy(kind: "skin" | "trail", id: string, price: number) {
+    const locked = kind === "skin" && SKINS.find(x => x.id === id)?.locked;
+    if (locked && !owned.has(id)) { toast("Finish all missions to unlock the Astronaut", "info"); return; }
     if (owned.has(id)) {
       if (kind === "skin") setSkin(id); else setTrail(id);
       audioRef.current?.tick(600);
@@ -580,7 +642,11 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
       el.textContent = `${floorMult(m).toFixed(2)}x`;
       el.dataset.tone = r.phase === "crashed" ? "crash" : multClass(m);
     }
-    if (timerRef.current) timerRef.current.textContent = Math.max(0, BOARDING_S - r.phaseT).toFixed(1);
+    if (timerRef.current) {
+      const left = Math.max(0, BOARDING_S - r.phaseT);
+      timerRef.current.textContent = left < 3 ? String(Math.ceil(left)) : left.toFixed(1);
+      timerRef.current.dataset.hot = left < 3 ? "1" : "";
+    }
     if (cashRef.current && r.bet && r.status === "riding") {
       const gross = payoutOf(r.bet.riding, r.multiplier);
       cashRef.current.textContent = rf(autoRef.current.glory ? gross - (gross * GLORY_BPS) / 10000n : gross);
@@ -628,7 +694,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
   let primaryLabel: ReactNode;
   let primaryClass = "ms-go";
   if (riding) {
-    primaryLabel = <><small>CASH OUT</small><span ref={cashRef}>{r.bet ? rf(payoutOf(r.bet.riding, r.multiplier)) : ""}</span></>;
+    primaryLabel = <><small>{r.half ? "CASH OUT THE REST" : "CASH OUT"}</small><span ref={cashRef}>{r.bet ? rf(payoutOf(r.bet.riding, r.multiplier)) : ""}</span></>;
     primaryClass = "ms-go ms-go-cash";
   } else if (reserved !== null) {
     primaryLabel = <><small>{r.phase === "boarding" ? "YOU'RE BOARDING" : "BOOKED FOR NEXT LAUNCH"}</small><span>Cancel · {rf(reserved)}</span></>;
@@ -691,6 +757,14 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
           <button type="button" className={primaryClass} onClick={primary} disabled={paused}>
             {primaryLabel}
           </button>
+          {riding && !r.half && (
+            <button type="button" className="ms-half" onClick={ejectHalf} disabled={paused}>
+              Eject half <span>bank 50% now · H</span>
+            </button>
+          )}
+          {r.half && r.phase !== "boarding" && (
+            <p className="ms-halfnote">Half banked at <b>{r.half.at.toFixed(2)}x</b> · {rf(r.half.payout)}</p>
+          )}
           {stakePreview && !riding && (
             <p className="ms-fuel"><b>{fmtRf(stakePreview.fuel)} RF</b> burns as fuel{r.supernova ? " (Supernova 20%)" : ""}</p>
           )}
@@ -736,6 +810,17 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
               {toasts.map(t => <div key={t.id} className={`ms-toast ms-toast-${t.kind}`}>{t.text}</div>)}
             </div>
           </div>
+          {showIntro && (
+            <div className="ms-intro" role="dialog" aria-label="How to play">
+              <strong>How to play</strong>
+              <ol>
+                <li><b>Join</b> a launch. 10% of your stake burns as fuel.</li>
+                <li><b>Cash out</b> before the crash. Eject half to play it safe.</li>
+                <li><b>Back riders</b> with fuel cans (1 RF, burned) for XP.</li>
+              </ol>
+              <button type="button" onClick={() => setShowIntro(false)}>Got it</button>
+            </div>
+          )}
           {banner && r.phase === "crashed" && (
             <div className={`ms-banner ms-banner-${banner.kind}`} role="status">
               <strong>{banner.title}</strong>
@@ -810,11 +895,36 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
                 <div><dt>Backed riders saved</dt><dd>{backerRef.current.wins} · {backerRef.current.xp} XP</dd></div>
                 <div className="tot"><dt>You burned</dt><dd>{rf(ledger.totalBurned)}</dd></div>
               </dl>
+              <h4>Missions</h4>
+              <ul className="ms-missions">
+                {MISSIONS.map(m => {
+                  const v = missionsRef.current[m.id];
+                  const done = v >= m.goal;
+                  return (
+                    <li key={m.id} className={done ? "done" : ""}>
+                      <i aria-hidden="true" />
+                      <span>{m.label}</span>
+                      <em>{done ? `+${m.xp} XP` : `${v}/${m.goal}`}</em>
+                    </li>
+                  );
+                })}
+              </ul>
               <div className="ms-novacard">
                 <span>Next Supernova</span>
                 <div className="ms-xpbar ms-xpbar-nova"><i style={{ width: `${novaPct}%` }} /></div>
                 <small>{fmtRf(world.novaMeter)} / {fmtRf(NOVA_EVERY)} RF burned by all pilots · {fmtRf(burnRate)} RF/min</small>
               </div>
+              {rfSupply === null && (
+                <button type="button" className="ms-supply-btn" onClick={loadSupply} disabled={supplyState === "loading"}>
+                  {supplyState === "loading" ? "Reading chain…" : supplyState === "failed" ? "Supply unavailable · retry" : "Compare with the real RF supply ↻"}
+                </button>
+              )}
+              {rfSupply !== null && (
+                <p className="ms-supply">
+                  Real $RAREFRIENDS supply <b>{fmtRf(rfSupply / ONE_RF * ONE_RF, 0)}</b> (live, read-only).
+                  This session's simulated burn = <b>{(toRf(world.burned) / toRf(rfSupply) * 100).toPrecision(2)}%</b> of supply.
+                </p>
+              )}
               <h4>Hall of Flames</h4>
               <ol className="ms-hall">
                 {hall.map(h => (
@@ -839,7 +949,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
                   <button key={s.id} type="button" className={`ms-item ${skin === s.id ? "eq" : ""} ${confirmBuy === s.id ? "confirm" : ""}`} onClick={() => buy("skin", s.id, s.price)}>
                     <span className="sw" style={{ background: `linear-gradient(90deg, ${s.body} 0 60%, ${s.trim} 60% 80%, ${s.nose} 80%)` }} />
                     <span className="nm">{s.name}</span>
-                    <span className="pr">{skin === s.id ? "equipped" : owned.has(s.id) ? "equip" : confirmBuy === s.id ? `burn ${s.price} RF?` : `${s.price} RF`}</span>
+                    <span className="pr">{skin === s.id ? "equipped" : owned.has(s.id) ? "equip" : s.locked ? "all missions" : confirmBuy === s.id ? `burn ${s.price} RF?` : `${s.price} RF`}</span>
                   </button>
                 ))}
               </div>

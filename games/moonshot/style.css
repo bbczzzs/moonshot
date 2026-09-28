@@ -347,3 +347,41 @@
   .ms-mult { font-size: 44px; }
 }
 .ms-backed { font-style: normal; font-size: 10px; color: var(--ink); background: var(--signal); border: 1px solid var(--ink); padding: 0 3px; line-height: 1.3; }
+
+/* ---------- final polish: eject half, intro, missions, supply, countdown ---------- */
+.ms-half {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  margin: -6px 3px 0 0; padding: 8px 12px;
+  background: var(--white); border: 1px solid var(--ink); box-shadow: var(--shadow);
+  font: 700 13px var(--mono); text-align: left;
+}
+.ms-half span { font: 10px var(--mono); color: var(--muted); }
+.ms-half:hover:not(:disabled) { background: var(--sun); }
+.ms-half:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: none; }
+.ms-halfnote { margin: -6px 0 0; font: 11px var(--mono); color: var(--muted); }
+.ms-halfnote b { color: var(--ink); background: var(--signal); padding: 0 3px; }
+.ms-count span[data-hot="1"] { color: var(--coral); animation: ms-tick 1s steps(2, end) infinite; }
+@keyframes ms-tick { 0% { transform: scale(1.18); } 50% { transform: scale(1); } 100% { transform: scale(1); } }
+.ms-intro {
+  position: absolute; right: 12px; bottom: 12px;
+  width: min(262px, 80%); padding: 12px 14px;
+  background: var(--paper); border: 1px solid var(--ink); box-shadow: 6px 6px 0 #555;
+  font: 12px/1.45 var(--mono); z-index: 2; animation: ms-rise 0.25s steps(3, end);
+}
+.ms-intro strong { display: block; margin-bottom: 6px; font: 700 14px/1 var(--display); }
+.ms-intro ol { margin: 0 0 10px; padding-left: 18px; }
+.ms-intro li { margin: 2px 0; }
+.ms-intro b { background: var(--signal); padding: 0 2px; font-weight: 700; }
+.ms-intro button { width: 100%; padding: 7px; background: var(--ink); color: var(--paper); border: 1px solid var(--ink); font: 12px var(--mono); }
+.ms-intro button:hover { background: var(--signal); color: var(--ink); }
+.ms-missions { list-style: none; margin: 0; padding: 0; }
+.ms-missions li { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px dotted var(--rule); font: 12px var(--mono); }
+.ms-missions i { width: 10px; height: 10px; border: 1px solid var(--ink); background: var(--white); }
+.ms-missions em { font-style: normal; font-size: 11px; color: var(--muted); }
+.ms-missions li.done i { background: var(--signal); }
+.ms-missions li.done span { text-decoration: line-through; color: var(--muted); }
+.ms-missions li.done em { color: var(--ink); background: var(--signal); padding: 0 3px; }
+.ms-supply { margin: 12px 0 0; padding: 8px; border: 1px dashed var(--ink); background: var(--white); font: 11px/1.5 var(--mono); color: var(--muted); }
+.ms-supply b { color: var(--ink); }
+.ms-supply-btn { width: 100%; margin-top: 12px; padding: 7px 8px; background: var(--white); border: 1px dashed var(--ink); font: 11px var(--mono); text-align: left; }
+.ms-supply-btn:hover:not(:disabled) { background: var(--sun); border-style: solid; }

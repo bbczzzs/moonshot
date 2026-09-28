@@ -20,11 +20,17 @@ A new launch every ~15 seconds:
 
 **Flame rank.** Every RF you burn earns Flame XP: Spark → Ember → Blaze → Inferno → Supernova. The **Flames** tab shows your burn receipt, rank, the Supernova meter and the **Hall of Flames** leaderboard.
 
+**Eject half** banks 50% of your ride at the current multiplier and lets the rest keep flying. Each half is an independent fair ride, so the odds don't change; it's the classic crash-game hedge.
+
+**Missions:** five session goals (eject above 3x, back 3 riders who land, throw 10 fuel cans, eject half then land the rest, fly a Supernova) pay Flame XP. Finishing all of them unlocks the Astronaut skin, which can't be bought.
+
+**Real supply:** the Flames tab can read the real $RAREFRIENDS `totalSupply()` on Robinhood mainnet (one read-only call, on demand; token address from the FriendSDK deployment config) and shows the session burn as a share of it.
+
 **Options.** **Auto eject** at a target multiplier. **Auto-launch** for 5, 10, 25 or 50 rounds, or indefinitely. **Burn for glory** burns 10% of every payout for 3× XP.
 
 ## Look and feel
 
-Drawn in the Rare Friends world style with the FriendSDK game palette (meadow `#B9D984`, pond `#7DB4DB`, sun `#F2CE68`, coral `#ED927E`, lilac `#B3A0D8`, signal `#CCFF00`), black ink outlines and checker-dither shading. Friends stay canonical black and white. The launch site is a floating meadow island. As you climb, the sky dithers from white paper into black space (purple on a Supernova). The UI follows the SDK frame: `#eee` paper, `#111` ink, square corners, 1px rules and hard shadows. It's kept simple, with one bet panel, one stage, and three tabs (Crew · Flames · Hangar).
+Drawn in the Rare Friends world style with the FriendSDK game palette (meadow `#B9D984`, pond `#7DB4DB`, sun `#F2CE68`, coral `#ED927E`, lilac `#B3A0D8`, signal `#CCFF00`), black ink outlines and checker-dither shading. Friends stay canonical black and white. The launch site is a floating meadow island. Crew walk the gantry arm onto their seats, the pad erupts in cartoon smoke at liftoff, floating sky islands drift past, and Friends talk in pixel sign bubbles ("WHEE!", "THX!", "AAA!"). As you climb, the sky dithers from white paper into black space (purple on a Supernova). The UI follows the SDK frame: `#eee` paper, `#111` ink, square corners, 1px rules and hard shadows. It's kept simple, with one bet panel, one stage, and three tabs (Crew · Flames · Hangar).
 
 ## RF costs, probabilities and rewards
 
@@ -67,12 +73,12 @@ Live, the Supernova threshold (300 RF in the preview) would scale with volume to
 - `npx friendsdk dev games/moonshot`: local preview. It needs a browser wallet on **Robinhood mainnet (4663)** holding a hardwired Generations NFT (gen ≥ 1), which is the SDK's standard gate.
 - `npx friendsdk build games/moonshot --outdir dist`: static build for any HTTPS host.
 
-Controls: **Space** bets, cancels or ejects. **F** throws a fuel can. **M** toggles sound. Everything also has a button for touch. Sound is off by default. Reduced motion follows the system setting and has its own toggle. The runtime's pause (menus open) freezes the flight without forfeiting anything.
+Controls: **Space** bets, cancels or ejects. **H** ejects half. **F** throws a fuel can. **M** toggles sound. Everything also has a button for touch. Sound is off by default. Reduced motion follows the system setting and has its own toggle. The runtime's pause (menus open) freezes the flight without forfeiting anything.
 
 ## Checks
 
 - `node verify-sdk-math.mjs`: 500,000 simulated launches. Instant bust 1.00%. Return 89.97% / 90.08% / 89.99% / 89.68% at 1.5x / 2x / 5x / 10x targets. Fuel burn 10.00% of volume. Launch Pool in/out balanced. Supernova 20% fuel, Glory 10% of payout, fuel can 1 RF, ledger totals and the rank ladder asserted.
-- `node test-interaction.mjs 960` and `node test-interaction.mjs 390`: in the real sandboxed runtime with the SDK's mock wallet. Covers joining during boarding, liftoff, a fuel can burning exactly 1 RF, pausing mid-flight (the multiplier freezes), ejecting (or a valid crash), crash history, a Hangar purchase burning exactly 25 RF, the Flames tab, Burn for glory, auto-launch booking the next boarding, and the sound toggle. **PASS** at both widths, no browser errors.
+- `node test-interaction.mjs 960` and `node test-interaction.mjs 390`: in the real sandboxed runtime with the SDK's mock wallet. Covers joining during boarding, liftoff, a fuel can burning exactly 1 RF, Eject half, pausing mid-flight (the multiplier freezes), ejecting (or a valid crash), crash history, a Hangar purchase burning exactly 25 RF, the Flames tab and missions, Burn for glory, auto-launch booking the next boarding, and the sound toggle. **PASS** at both widths, no browser errors.
 - `npm run typecheck`: strict TypeScript across all game sources, 0 errors.
 - `npx friendsdk check games/moonshot`: valid. `npx friendsdk test games/moonshot --width 1200` and `--width 360`: **PASS**.
 

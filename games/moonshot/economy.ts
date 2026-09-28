@@ -138,6 +138,23 @@ export class Ledger {
     return payout;
   }
 
+  /**
+   * Eject half: bank half the ride at `multiplier` and keep the other half
+   * flying. Each half is an independent fair ride, so the odds don't change.
+   */
+  cashOutHalf(bet: Bet, multiplier: number, glory = false): bigint {
+    const half = bet.riding / 2n;
+    bet.riding -= half;
+    const gross = payoutOf(half, multiplier);
+    const burn = glory ? (gross * GLORY_BPS) / 10000n : 0n;
+    this.stats.gloryBurned += burn;
+    const payout = gross - burn;
+    this.balance += payout;
+    this.stats.paidOut += payout;
+    if (multiplier > this.stats.bestCashout) this.stats.bestCashout = floorMult(multiplier);
+    return payout;
+  }
+
   crashed(bet: Bet): void {
     this.stats.lostToPool += bet.riding;
   }

@@ -38,16 +38,19 @@ interface Particle {
   x: number; y: number; vx: number; vy: number;
   life: number; max: number; size: number; grow: number;
   color: string; shape: Shape; g: number; top: boolean;
+  sc?: number; // how much the particle scrolls with the world (default 0.5)
 }
 
 interface Chute {
   sprite: HTMLCanvasElement; x: number; y: number; vx: number; vy: number;
   t: number; color: string; label: string; big: boolean; sway: number;
+  say: string; // speech bubble shortly after ejecting
 }
 
 interface Debris {
   sprite: HTMLCanvasElement; x: number; y: number; vx: number; vy: number;
   rot: number; vr: number; t: number;
+  say: string;
 }
 
 interface Star { x: number; y: number; layer: number; tw: number; }
@@ -70,7 +73,9 @@ const PX_PER_ALT = 170; // buffer pixels per ln-unit of multiplier
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
 const LANDMARKS: { m: number; kind: string; side: 1 | -1 }[] = [
+  { m: 1.25, kind: "isle", side: 1 },
   { m: 1.45, kind: "clouds", side: 1 },
+  { m: 1.8, kind: "isle2", side: -1 },
   { m: 2, kind: "moon", side: 1 },
   { m: 3, kind: "satellite", side: -1 },
   { m: 5, kind: "mars", side: -1 },
@@ -80,6 +85,9 @@ const LANDMARKS: { m: number; kind: string; side: 1 | -1 }[] = [
   { m: 100, kind: "galaxy", side: -1 },
 ];
 
+const CHEERS = ["WHEE!", "BYE!", "YAY!", "LATER!", "MINE!", "SEE YA!"];
+const pick = <T,>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
+
 const RULER = [1.5, 2, 3, 5, 10, 20, 50, 100, 250, 1000];
 
 // 3x5 pixel font for signs and labels.
@@ -87,7 +95,7 @@ const GLYPHS: Record<string, string> = {
   "0": "111101101101111", "1": "010110010010111", "2": "111001111100111", "3": "111001111001111",
   "4": "101101111001001", "5": "111100111001111", "6": "111100111101111", "7": "111001010010010",
   "8": "111101111101111", "9": "111101111001111", ".": "000000000000010", "x": "000101010101000",
-  "+": "000010111010000", "-": "000000111000000", " ": "000000000000000",
+  "+": "000010111010000", "-": "000000111000000", " ": "000000000000000", "!": "010010010000010", "?": "111001010000010",
   A: "010101111101101", B: "110101110101110", C: "011100100100011", D: "110101101101110",
   E: "111100110100111", F: "111100110100100", G: "011100101101011", H: "101101111101101",
   I: "111010010010111", J: "001001001101010", K: "101101110101101", L: "100100100100111",
@@ -147,6 +155,9 @@ export class MoonshotScene {
   private cans: Can[] = [];
   private aura = new Map<number, number>(); // seat (-1 = player) -> seconds left
   private nova = false;
+  private groundY = 0;
+  private seatSay = new Map<number, { text: string; until: number }>();
+  private crate: HTMLCanvasElement | null = null;
   private boom = -1; // seconds since the crash burst, <0 = none
   private boomAt = { x: 0, y: 0 };
   private shake = 0;
@@ -256,6 +267,7 @@ export class MoonshotScene {
       sprite: this.sprites(`c${c.id}`, c.frames)[0], x: p.x, y: p.y + 8,
       vx: p.side * (18 + Math.random() * 14), vy: -26, t: 0, color: backed ? SIGNAL : FAMILY_COLORS[c.familyId] ?? CORAL,
       label: `+${multiplier.toFixed(2)}x`, big: backed, sway: Math.random() * 6,
+      say: backed ? "THX!" : pick(CHEERS),
     });
     if (backed) this.sparks(p.x, p.y + 8, 12, [SIGNAL, WHITE, SUN]);
     this.puffs(p.x, p.y + 8, 4, 1.2);
@@ -265,10 +277,35 @@ export class MoonshotScene {
     const p = this.cockpit();
     this.chutes.push({
       sprite: this.pilot[0] ?? spriteCanvas(Array(16).fill("................")), x: p.x, y: p.y,
-      vx: 14, vy: -40, t: 0, color: SIGNAL, label: `+${multiplier.toFixed(2)}x`, big: true, sway: 0,
+      vx: 14, vy: -40, t: 0, color: SIGNAL, label: `+${multiplier.toFixed(2)}x`, big: true, sway: 0, say: "WOO!",
     });
     this.puffs(p.x, p.y, 7, 1.6);
     this.sparks(p.x, p.y, 16, [SIGNAL, WHITE, SUN]);
+  }
+
+  /** Eject half: a cargo pod of banked RF parachutes out while the pilot stays aboard. */
+  ejectCargo(multiplier: number): void {
+    const p = this.cockpit();
+    this.chutes.push({
+      sprite: this.cargo(), x: p.x - 12, y: p.y + 20, vx: -22, vy: -34, t: 0, color: SIGNAL,
+      label: `+${multiplier.toFixed(2)}x`, big: true, sway: 1, say: "HALF!",
+    });
+    this.puffs(p.x - 12, p.y + 20, 5, 1.2);
+    this.sparks(p.x - 12, p.y + 20, 12, [SIGNAL, SUN, WHITE]);
+  }
+
+  private cargo(): HTMLCanvasElement {
+    if (this.crate) return this.crate;
+    const c = document.createElement("canvas");
+    c.width = 18; c.height = 18;
+    const g = c.getContext("2d")!;
+    g.fillStyle = WHITE; g.fillRect(2, 3, 14, 13);
+    g.fillStyle = K; g.fillRect(3, 4, 12, 11);
+    g.fillStyle = SUN; g.fillRect(4, 5, 10, 9);
+    g.fillStyle = K; g.fillRect(4, 8, 10, 1); g.fillRect(8, 5, 1, 9);
+    g.fillStyle = SIGNAL; g.fillRect(5, 10, 2, 3); g.fillRect(10, 10, 2, 3);
+    this.crate = c;
+    return c;
   }
 
   crash(crew: SceneCrew[], playerAboard: boolean): void {
@@ -291,11 +328,12 @@ export class MoonshotScene {
       this.debris.push({
         sprite: this.burned(`c${c.id}`, c.frames), x: p.x, y: p.y + 8,
         vx: p.side * (30 + Math.random() * 50), vy: -60 - Math.random() * 50, rot: 0, vr: (Math.random() - 0.5) * 10, t: 0,
+        say: Math.random() < 0.6 ? "AAA!" : "",
       });
     }
     if (playerAboard && this.pilot[0]) {
       const p = this.cockpit();
-      this.debris.push({ sprite: this.pilot[0], x: p.x, y: p.y, vx: 10, vy: -90, rot: 0, vr: 6, t: 0 });
+      this.debris.push({ sprite: this.pilot[0], x: p.x, y: p.y, vx: 10, vy: -90, rot: 0, vr: 6, t: 0, say: "NOOO!" });
     }
     if (!this.reduced) { this.shake = 1; this.flash = 1; }
   }
@@ -331,6 +369,7 @@ export class MoonshotScene {
       this.boom = -1;
       this.cans = [];
       this.aura.clear();
+      this.seatSay.clear();
     }
     this.lastPhase = s.phase;
     this.nova = s.supernova;
@@ -349,6 +388,7 @@ export class MoonshotScene {
     this.drawRuler();
     this.drawIsland(s);
     if (s.phase === "flying") this.exhaust(s, dt, 1);
+    if (s.phase === "flying" && s.phaseT < 1.4 && !this.reduced) this.liftoffSmoke(dt);
     else if (s.phase === "boarding" && Math.random() < dt * 4) this.exhaust(s, dt, 0.2);
     this.stepParticles(dt, scrollV, false);
     if (s.phase !== "crashed") {
@@ -513,6 +553,8 @@ export class MoonshotScene {
       const x = this.cx + l.side * Math.max(72, Math.min(150, this.W * 0.3));
       switch (l.kind) {
         case "clouds": this.clouds(y); break;
+        case "isle": this.skyIsle(this.cx + l.side * Math.max(84, Math.min(170, this.W * 0.36)), y, 24, false); break;
+        case "isle2": this.skyIsle(this.cx + l.side * Math.max(84, Math.min(170, this.W * 0.34)), y, 30, true); break;
         case "moon": this.moon(x, y); break;
         case "satellite": this.satellite(x, y); break;
         case "mars": this.mars(x, y); break;
@@ -679,6 +721,7 @@ export class MoonshotScene {
   private drawIsland(s: SceneState): void {
     const g = this.b;
     const gy = Math.round(this.altY(1) + 45 + 1); // pad surface
+    this.groundY = gy;
     if (gy > this.H + 60) return;
     const cx = this.cx;
     const rx = Math.min(Math.round(this.W * 0.46), 175), ry = Math.round(rx * 0.26), band = 7;
@@ -879,14 +922,24 @@ export class MoonshotScene {
       const p = this.seatPos(c.seat);
       const frames = this.sprites(`c${c.id}`, c.frames);
       const f = frames[Math.floor(this.time * 4 + c.id) % frames.length];
-      let hop = 0;
-      if (c.joinedT < 0.35) hop = -Math.round(Math.sin((c.joinedT / 0.35) * Math.PI) * 6);
       const y = p.y + jitter;
+      const WALK = 0.6;
       // Seat platform in the Friend's family tint.
       g.fillStyle = WHITE; g.fillRect(p.x - 8, y + 15, 16, 4);
       g.fillStyle = K; g.fillRect(p.x - 7, y + 16, 14, 2);
       g.fillStyle = FAMILY_COLORS[c.familyId] ?? CORAL; g.fillRect(p.x - 6, y + 16, 12, 1);
-      g.drawImage(f, p.x - 9, y - 1 + hop);
+      if (s.phase === "boarding" && c.joinedT < WALK) {
+        // Walk off the gantry arm and hop onto the seat.
+        const k = Math.max(0, c.joinedT) / WALK;
+        const sx = this.cx - 42, sy = this.groundY - 90;
+        const x = Math.round(sx + (p.x - 9 - sx) * k);
+        const yy = Math.round(sy + (y - 1 - sy) * k - Math.sin(k * Math.PI) * 16);
+        g.drawImage(f, x, yy);
+      } else {
+        g.drawImage(f, p.x - 9, y - 1);
+      }
+      const bubble = this.seatSay.get(c.seat);
+      if (bubble && bubble.until > this.time) this.sign(bubble.text, p.x + p.side * 20, y - 10);
     }
   }
 
@@ -923,7 +976,7 @@ export class MoonshotScene {
       if (p.life >= p.max) continue;
       p.vy += p.g * dt;
       p.x += p.vx * dt;
-      p.y += (p.vy + scrollV * 0.5) * dt;
+      p.y += (p.vy + scrollV * (p.sc ?? 0.5)) * dt;
       p.vx *= Math.pow(0.4, dt);
       keep.push(p);
       if (p.shape === "puff") { puffs.push(p); continue; }
@@ -979,6 +1032,53 @@ export class MoonshotScene {
     }
   }
 
+  /** Cartoon smoke billowing sideways off the pad at liftoff. */
+  private liftoffSmoke(dt: number): void {
+    const n = Math.round(dt * 46);
+    for (let i = 0; i < n; i++) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      this.particles.push({
+        x: this.cx + side * Math.random() * 10, y: this.groundY - 3,
+        vx: side * (40 + Math.random() * 90), vy: -Math.random() * 14,
+        life: 0, max: 1.2 + Math.random() * 0.8, size: 3 + Math.random() * 3, grow: 9,
+        color: WHITE, shape: "puff", g: -4, top: false, sc: 1,
+      });
+    }
+  }
+
+  /** A small floating island in the SDK world style: meadow top, coral slab, a tree or a hut. */
+  private skyIsle(x: number, y: number, rx: number, hut: boolean): void {
+    const g = this.b;
+    const ry = Math.round(rx * 0.3), band = 5;
+    x = Math.round(Math.max(rx + 30, Math.min(this.W - rx - 6, x))); y = Math.round(y);
+    this.ellipse(x, y + band, rx + 2, ry + 2, WHITE);
+    this.ellipse(x, y + band, rx + 1, ry + 1, K);
+    this.ellipse(x, y + band, rx, ry, CORAL);
+    g.fillStyle = CORAL; g.fillRect(x - rx, y, rx * 2 + 1, band);
+    g.fillStyle = K; g.fillRect(x - rx - 1, y, 1, band); g.fillRect(x + rx + 1, y, 1, band);
+    // Dangling roots.
+    g.fillStyle = K;
+    for (let i = -rx + 6; i < rx - 4; i += 7) g.fillRect(x + i, y + band + ry, 1, 3 + ((i + rx) % 3));
+    this.ellipse(x, y, rx + 1, ry + 1, K);
+    this.ellipse(x, y, rx, ry, MEADOW);
+    g.fillStyle = K;
+    for (let i = -rx + 5; i < rx - 3; i += 6) g.fillRect(x + i, y + ((i * 7) % 3) - 1, 2, 1);
+    if (hut) {
+      const hx = x + 4, hy = y - 2;
+      g.fillStyle = K; g.fillRect(hx - 8, hy - 11, 17, 12);
+      g.fillStyle = WHITE; g.fillRect(hx - 7, hy - 10, 15, 10);
+      g.fillStyle = POND; g.fillRect(hx - 5, hy - 8, 4, 4);
+      g.fillStyle = K; g.fillRect(hx + 2, hy - 7, 4, 7);
+      for (let i = 0; i < 6; i++) { g.fillStyle = K; g.fillRect(hx - 10 + i, hy - 11 - i, 21 - i * 2, 1); }
+      for (let i = 1; i < 5; i++) { g.fillStyle = CORAL; g.fillRect(hx - 9 + i, hy - 11 - i + 1, 19 - i * 2, 1); }
+      this.tree(x - rx + 8, y, 5);
+    } else {
+      this.tree(x - 6, y, 6);
+      g.fillStyle = K; g.fillRect(x + 8, y - 5, 1, 4);
+      g.fillStyle = SUN; g.fillRect(x + 7, y - 7, 3, 2);
+    }
+  }
+
   private seatCenter(seat: number): { x: number; y: number } {
     if (seat < 0) { const c = this.cockpit(); return { x: c.x, y: c.y }; }
     const p = this.seatPos(seat);
@@ -997,6 +1097,7 @@ export class MoonshotScene {
       if (k >= 1) {
         this.sparks(to.x, to.y, 10, [SUN, CORAL, WHITE]);
         this.aura.set(c.seat, 2.6);
+        if (c.seat >= 0 && (c.mine || Math.random() < 0.4)) this.seatSay.set(c.seat, { text: c.mine ? "THX!" : pick(["YEAH!", "GO!", "FUEL!"]), until: this.time + 1.1 });
         if (c.mine) this.puffs(to.x, to.y, 2, 0.8, 20);
         continue;
       }
@@ -1067,6 +1168,7 @@ export class MoonshotScene {
       }
       g.drawImage(c.sprite, x - 9, y - 4);
       if (c.t < 2.4) this.sign(c.label, x, y - 33, "center", c.big ? SIGNAL : WHITE);
+      if (c.say && c.t > 0.4 && c.t < 1.7) this.sign(c.say, x + (c.vx >= 0 ? 16 : -16), y - 6);
       keep.push(c);
     }
     this.chutes = keep;
@@ -1091,6 +1193,7 @@ export class MoonshotScene {
       g.rotate(Math.round(d.rot / (Math.PI / 4)) * (Math.PI / 4));
       g.drawImage(d.sprite, -9, -9);
       g.restore();
+      if (d.say && d.t < 0.9) this.sign(d.say, d.x, d.y - 22, "center", CORAL);
       keep.push(d);
     }
     this.debris = keep;

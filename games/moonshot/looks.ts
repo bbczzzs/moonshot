@@ -12,6 +12,7 @@ export interface Skin {
   trim: string;
   nose: string;
   glass: string;
+  locked?: "missions"; // earned, not bought
 }
 
 export interface Trail {
@@ -29,6 +30,7 @@ export const SKINS: Skin[] = [
   { id: "neon", name: "Meadow", price: 60, body: "#B9D984", shade: "#000000", trim: "#FFFFFF", nose: "#ED927E", glass: "#F2CE68" },
   { id: "gold", name: "Gold Rush", price: 150, body: "#F2CE68", shade: "#000000", trim: "#FFFFFF", nose: "#000000", glass: "#CCFF00" },
   { id: "void", name: "Signal", price: 300, body: "#000000", shade: "#FFFFFF", trim: "#CCFF00", nose: "#CCFF00", glass: "#B3A0D8" },
+  { id: "astro", name: "Astronaut", price: 0, body: "#FFFFFF", shade: "#B3A0D8", trim: "#CCFF00", nose: "#B3A0D8", glass: "#F2CE68", locked: "missions" },
 ];
 
 export const TRAILS: Trail[] = [
