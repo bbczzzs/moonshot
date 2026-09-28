@@ -12,7 +12,7 @@ A new launch every ~15 seconds:
 
 1. **Boarding (6 s).** Crew Friends hop onto the rocket's outrigger seats. Tap **Join this launch** (or press Space). Your Friend climbs into the cockpit dome. You can cancel for a full refund until liftoff.
 2. **Liftoff.** **10% of every stake burns as rocket fuel**, from every pilot, whatever the outcome. The multiplier climbs as `m(t) = e^(0.12t)`: 2x at ~5.8 s, 10x at ~19 s. You pass the **Moon at 2x**, satellites at 3x, **Mars at 5x**, **Saturn at 10x**, then a nebula, a black hole and a galaxy.
-3. **Fuel cans.** Mid-flight, throw a **fuel can (1 RF, burned 100%)** at any crew rider from the crew list (or press F). They get a flame aura, and the crowd throws cans too.
+3. **Fuel cans.** Mid-flight, throw a **fuel can (1 RF, burned 100%)** at any crew rider from the crew list (or press F). They get a flame aura, and the crowd throws cans too. If the rider you backed ejects safely, you earn **backer XP** (3 XP per can × their multiplier) and their parachute turns signal green with a ★. Backing pays in status, never RF.
 4. **Eject.** Press **Cash out** (Space, or tap the sky) to parachute out with `ride × multiplier`. Crew eject at their own targets.
 5. **Crash.** Whoever is still aboard burns with the rocket. Their ride goes to the Launch Pool, which funds everyone who ejected.
 
@@ -46,6 +46,16 @@ Everything is **simulated demo RF** (1,000 to start) and labelled as such in the
 | House edge | Equal to the fuel, and **all of it is burned**. The house keeps nothing |
 | Crash | Riders still aboard lose their ride to the Launch Pool, which pays ejectors (zero-sum in expectation) |
 
+**Burn projection (illustrative, not measured).** Assumptions: each player averages 40 launches a day at 10 RF, 10% of launches are Supernovas, players throw a fuel can every other launch, and 30% of players use Burn for glory. Hangar purchases are excluded. Per launch that's 1.10 RF fuel + 0.50 RF cans + 0.27 RF glory = **1.87 RF burned per 10 RF staked (≈18.7% of volume)**, or about **75 RF per player per day**.
+
+| Daily players | RF burned / day | RF burned / year |
+|---|---|---|
+| 50 | 3,740 | ≈1.4M |
+| 500 | 37,400 | ≈13.7M |
+| 5,000 | 374,000 | ≈137M |
+
+Live, the Supernova threshold (300 RF in the preview) would scale with volume to keep Supernovas near 10% of launches.
+
 **Why Token Activity:** every launch is a spend event for every pilot aboard and a guaranteed burn event. On top of that come three voluntary sinks players *want* to use: fuel cans (social), Glory (status), and the Hangar (style). Supernova events spike the burn for everyone. Flame ranks and the Hall of Flames give players a reason to burn. The loop repeats about every 15 seconds and can run hands-free.
 
 **The crew** are real Rare Friends Generations NFTs. Their canonical on-chain sprites were read from the artwork registry and baked into `crew-sprites.json`. Their stakes, eject targets and fuel cans are simulated for the preview; at launch these seats would be real players. Your own pilot is read live through the SDK's `createFriendReader()`.
@@ -63,6 +73,7 @@ Controls: **Space** bets, cancels or ejects. **F** throws a fuel can. **M** togg
 
 - `node verify-sdk-math.mjs`: 500,000 simulated launches. Instant bust 1.00%. Return 89.97% / 90.08% / 89.99% / 89.68% at 1.5x / 2x / 5x / 10x targets. Fuel burn 10.00% of volume. Launch Pool in/out balanced. Supernova 20% fuel, Glory 10% of payout, fuel can 1 RF, ledger totals and the rank ladder asserted.
 - `node test-interaction.mjs 960` and `node test-interaction.mjs 390`: in the real sandboxed runtime with the SDK's mock wallet. Covers joining during boarding, liftoff, a fuel can burning exactly 1 RF, pausing mid-flight (the multiplier freezes), ejecting (or a valid crash), crash history, a Hangar purchase burning exactly 25 RF, the Flames tab, Burn for glory, auto-launch booking the next boarding, and the sound toggle. **PASS** at both widths, no browser errors.
+- `npm run typecheck`: strict TypeScript across all game sources, 0 errors.
 - `npx friendsdk check games/moonshot`: valid. `npx friendsdk test games/moonshot --width 1200` and `--width 360`: **PASS**.
 
 ## Known issues

@@ -249,13 +249,15 @@ export class MoonshotScene {
     });
   }
 
-  ejectCrew(c: SceneCrew, multiplier: number): void {
+  /** A crew member ejects; `backed` riders (the player threw them fuel cans) get a signal chute. */
+  ejectCrew(c: SceneCrew, multiplier: number, backed = false): void {
     const p = this.seatPos(c.seat);
     this.chutes.push({
       sprite: this.sprites(`c${c.id}`, c.frames)[0], x: p.x, y: p.y + 8,
-      vx: p.side * (18 + Math.random() * 14), vy: -26, t: 0, color: FAMILY_COLORS[c.familyId] ?? CORAL,
-      label: `+${multiplier.toFixed(2)}x`, big: false, sway: Math.random() * 6,
+      vx: p.side * (18 + Math.random() * 14), vy: -26, t: 0, color: backed ? SIGNAL : FAMILY_COLORS[c.familyId] ?? CORAL,
+      label: `+${multiplier.toFixed(2)}x`, big: backed, sway: Math.random() * 6,
     });
+    if (backed) this.sparks(p.x, p.y + 8, 12, [SIGNAL, WHITE, SUN]);
     this.puffs(p.x, p.y + 8, 4, 1.2);
   }
 

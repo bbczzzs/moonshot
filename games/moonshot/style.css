@@ -346,3 +346,4 @@
   .ms-panel { padding-bottom: 76px; overflow: visible; }
   .ms-mult { font-size: 44px; }
 }
+.ms-backed { font-style: normal; font-size: 10px; color: var(--ink); background: var(--signal); border: 1px solid var(--ink); padding: 0 3px; line-height: 1.3; }

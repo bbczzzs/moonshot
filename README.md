@@ -17,7 +17,7 @@
 - **New launch every ~15 s.** Board during a 6-second window, ride the multiplier, eject before it crashes.
 - **Every launch burns 10% of every stake as fuel.** That's the whole house edge; the house keeps nothing. Ejecting at any target returns exactly 90% on average (`P(crash ≥ m) = 1/m`).
 - **Crashes feed the Launch Pool**, which pays everyone who ejected.
-- **Fuel cans:** throw 1 RF (**burned 100%**) at any rider mid-flight. They get a flame aura, and the crowd throws cans too.
+- **Fuel cans:** throw 1 RF (**burned 100%**) at any rider mid-flight. They get a flame aura, and the crowd throws cans too. Back a rider who ejects safely and you earn backer XP.
 - **Supernova launches:** every 300 RF burned by all pilots, the next launch burns **20% fuel**, turns the sky purple and pays **3× Flame XP**.
 - **Burn for glory:** optionally burn 10% of every payout for 3× XP.
 - **Hangar:** rocket skins and exhaust trails, **100% burned**, cosmetic only.
@@ -25,6 +25,16 @@
 - **Auto eject + auto-launch** keep the spend loop running hands-free.
 - **Rare Friends house style.** Drawn in the FriendSDK game palette with ink outlines and dither shading, on a floating meadow island, with the SDK frame's paper-and-ink UI.
 - **Real Friends everywhere.** Your pilot is read live with the SDK sprite reader, and the crew are real Generations Friends' on-chain sprites.
+
+**Burn projection (illustrative, not measured).** Assumptions: each player averages 40 launches a day at 10 RF, 10% of launches are Supernovas, players throw a fuel can every other launch, and 30% of players use Burn for glory. Hangar purchases are excluded. Per launch that's 1.10 RF fuel + 0.50 RF cans + 0.27 RF glory = **1.87 RF burned per 10 RF staked (≈18.7% of volume)**, or about **75 RF per player per day**.
+
+| Daily players | RF burned / day | RF burned / year |
+|---|---|---|
+| 50 | 3,740 | ≈1.4M |
+| 500 | 37,400 | ≈13.7M |
+| 5,000 | 374,000 | ≈137M |
+
+Live, the Supernova threshold (300 RF in the preview) would scale with volume to keep Supernovas near 10% of launches.
 
 Full rules, math, checks and known issues: [`games/moonshot/README.md`](games/moonshot/README.md).
 
@@ -43,6 +53,7 @@ Full rules, math, checks and known issues: [`games/moonshot/README.md`](games/mo
 npm install
 npx friendsdk dev games/moonshot                    # local preview (real wallet gate)
 npx friendsdk build games/moonshot --outdir dist    # static build
+npm run typecheck                                   # strict TypeScript
 node verify-sdk-math.mjs                            # economy check
 node test-interaction.mjs 960                       # interaction test (needs: npx playwright install chromium)
 ```

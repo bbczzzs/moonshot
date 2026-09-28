@@ -121,6 +121,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
   const worldRef = useRef<World>({ burned: 0n, novaMeter: 0n, launches: 0, started: Date.now(), hall: new Map() });
   const autoRef = useRef({ cash: false, cashAt: 2, bet: false, betLeft: 0 as number, stake: 10n * ONE_RF, glory: false });
   const xpRef = useRef(0);
+  const backerRef = useRef({ wins: 0, xp: 0 }); // backed riders who ejected safely
   const roundRef = useRef<Round>(newRound(0));
   const toastId = useRef(0);
 
@@ -169,9 +170,12 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     w.burned += amount;
     w.novaMeter += amount;
     roundRef.current.burned += amount;
-    if (!mine) return;
+    if (mine) addXp(toRf(amount) * xpMult);
+  }
+
+  function addXp(xp: number) {
     const before = rankOf(xpRef.current).index;
-    xpRef.current += toRf(amount) * xpMult;
+    xpRef.current += xp;
     const after = rankOf(xpRef.current);
     if (after.index > before) {
       toast(`Flame rank up · ${after.name}`, "nova");
@@ -347,8 +351,17 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
           c.status = "ejected";
           c.cashedAt = at;
           c.payout = payoutOf(c.riding, at);
-          scene.ejectCrew(sceneCrewOf(c), at);
+          const backed = c.myCans > 0;
+          scene.ejectCrew(sceneCrewOf(c), at, backed);
           audio.eject();
+          if (backed) {
+            // Backing pays in status, never RF: 3 XP per can, scaled by how high they flew.
+            const xp = Math.round(3 * c.myCans * at);
+            backerRef.current.wins += 1;
+            backerRef.current.xp += xp;
+            addXp(xp);
+            toast(`★ Your backed rider #${c.friend.id} ejected at ${at.toFixed(2)}x · +${xp} backer XP`, "good");
+          }
         }
       }
       // The (simulated) crowd throws fuel cans at riders it is cheering on.
@@ -419,6 +432,8 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     const scene = sceneRef.current!;
     const aboard = r.crew.filter(c => c.status === "riding");
     for (const c of aboard) { c.status = "burned"; r.pool += c.riding; }
+    const lostBacked = aboard.filter(c => c.myCans > 0).length;
+    if (lostBacked) toast(`${lostBacked} backed rider${lostBacked > 1 ? "s" : ""} burned with the rocket`, "bad");
     const playerAboard = r.status === "riding";
     if (playerAboard && r.bet) {
       ledger.crashed(r.bet);
@@ -740,7 +755,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
 
           {tab === "crew" && (
             <div className="ms-panel">
-              {r.phase === "flying" && <p className="ms-tip">Throw a fuel can at a rider: <b>1 RF, burned</b>. Key F.</p>}
+              {r.phase === "flying" && <p className="ms-tip">Back a rider with a fuel can: <b>1 RF, burned</b>. If they eject safely you earn backer XP. Key F.</p>}
               <ul className="ms-crew">
                 {(r.bet || reserved !== null) && (
                   <li className={`me st-${r.status === "none" ? "booked" : r.status}`}>
@@ -758,7 +773,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
                 {r.crew.map(c => (
                   <li key={c.friend.id} className={`st-${c.status}`}>
                     <img src={avatar(`c${c.friend.id}`, c.friend.frames[0], c.status === "burned" ? "#ED927E" : "#000000")} alt="" className="ms-av" style={{ borderColor: FAMILY_COLORS[c.friend.familyId] }} />
-                    <span className="nm">#{c.friend.id}{c.cans > 0 && <i className="ms-cans" title={`${c.cans} fuel cans`}>🔥{c.cans}</i>}</span>
+                    <span className="nm">#{c.friend.id}{c.cans > 0 && <i className="ms-cans" title={`${c.cans} fuel cans`}>🔥{c.cans}</i>}{c.myCans > 0 && <i className="ms-backed" title="You backed this rider">★</i>}</span>
                     <span className="stk">{fmtRf(c.stake)}</span>
                     <span className="res">
                       {c.status === "riding" && r.phase === "flying" ? (
@@ -792,6 +807,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
                 <div><dt>Fuel cans</dt><dd>{fmtRf(st.canBurned)}</dd></div>
                 <div><dt>Glory</dt><dd>{fmtRf(st.gloryBurned)}</dd></div>
                 <div><dt>Hangar</dt><dd>{fmtRf(st.hangarBurned)}</dd></div>
+                <div><dt>Backed riders saved</dt><dd>{backerRef.current.wins} · {backerRef.current.xp} XP</dd></div>
                 <div className="tot"><dt>You burned</dt><dd>{rf(ledger.totalBurned)}</dd></div>
               </dl>
               <div className="ms-novacard">
