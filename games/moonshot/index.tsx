@@ -32,13 +32,13 @@ const BOARDING_S = 6;
 const AFTERMATH_S = 3.4;
 const PRESETS = ["5", "10", "25", "50", "100"];
 const MILESTONES: { m: number; label: string }[] = [
-  { m: 2, label: "🌙 Passed the Moon" },
-  { m: 3, label: "🛰 Past the satellites" },
-  { m: 5, label: "🔴 Mars flyby" },
-  { m: 10, label: "🪐 Saturn's rings" },
-  { m: 25, label: "🌌 Into the nebula" },
-  { m: 50, label: "🕳 Black hole slingshot" },
-  { m: 100, label: "🚀 MOONSHOT · 100x" },
+  { m: 2, label: "Passed the Moon" },
+  { m: 3, label: "Past the satellites" },
+  { m: 5, label: "Mars flyby" },
+  { m: 10, label: "Saturn's rings" },
+  { m: 25, label: "Into the nebula" },
+  { m: 50, label: "Black hole slingshot" },
+  { m: 100, label: "MOONSHOT" },
 ];
 
 const rf = (v: bigint) => `${fmtRf(v)} RF`;
@@ -71,7 +71,7 @@ interface Toast { id: number; text: string; kind: "good" | "bad" | "info"; }
 
 /** Pixel avatar for list rows (data URL, cached). */
 const avatarCache = new Map<string, string>();
-function avatar(key: string, rows: SpriteRows | undefined, fill = "#f4f1e8"): string {
+function avatar(key: string, rows: SpriteRows | undefined, fill = "#000000"): string {
   if (!rows) return "";
   const k = `${key}:${fill}`;
   let url = avatarCache.get(k);
@@ -322,7 +322,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
       const next = MILESTONES[r.milestone];
       if (next && m >= next.m) {
         r.milestone += 1;
-        toast(`${next.label} · ${next.m}x`, "good");
+        toast(`→ ${next.label} · ${next.m}x`, "good");
         audio.milestone();
       }
       return;
@@ -478,7 +478,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     if (kind === "skin") setSkin(id); else setTrail(id);
     audioRef.current?.unlock();
     audioRef.current?.burn();
-    toast(`🔥 Burned ${price} RF · ${kind === "skin" ? "skin" : "trail"} unlocked`, "good");
+    toast(`Burned ${price} RF · ${kind === "skin" ? "skin" : "trail"} unlocked`, "good");
   }
 
   /** Per-frame DOM writes (no React churn). */
@@ -515,7 +515,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     );
   }
   if (!ready) {
-    return <div className="ms-loading" role="status"><p>Fueling the rocket…</p></div>;
+    return <div className="ms-loading" role="status"><div className="ms-loading-mark" aria-hidden="true"><i /><i /><i /><i /></div><p>Fueling the rocket…</p></div>;
   }
 
   const r = roundRef.current;
@@ -546,7 +546,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     <section className={reduced ? "ms-root ms-reduced" : "ms-root"} aria-label="Moonshot" aria-busy={paused}>
       <header className="ms-top">
         <div className="ms-brand">
-          <span className="ms-logo" aria-hidden="true">▲</span>
+          <span className="ms-logo" aria-hidden="true" />
           <strong>MOONSHOT</strong>
           <span className="ms-demo" title="All RF in this preview is simulated">DEMO RF</span>
         </div>
@@ -578,7 +578,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
           </div>
 
           <label className="ms-field">
-            <span>Stake <em>RF</em></span>
+            <span className="ms-eyebrow">Stake <em>RF</em></span>
             <div className="ms-stake">
               <button type="button" aria-label="Halve stake" onClick={() => { const s = parseRf(stakeText); if (s) setStakeText(fmtRf(s / 2n > MIN_STAKE ? s / 2n : MIN_STAKE).replace(/,/g, "")); }}>½</button>
               <input inputMode="decimal" aria-label="Stake in RF" value={stakeText}
@@ -592,7 +592,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
             ))}
           </div>
           {stakePreview && (
-            <p className="ms-fuel">🔥 {fmtRf(stakePreview.fuel)} fuel burns · {fmtRf(stakePreview.riding)} rides</p>
+            <p className="ms-fuel"><b>{fmtRf(stakePreview.fuel)} RF</b> burns as fuel · {fmtRf(stakePreview.riding)} rides</p>
           )}
 
           <button type="button" className={primaryClass} onClick={primary} disabled={paused}>
@@ -657,8 +657,9 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
           </div>
           {banner && r.phase === "crashed" && (
             <div className={`ms-banner ms-banner-${banner.kind}`} role="status">
+              <div className="ms-banner-bar"><span>Launch #{r.n}</span><span>{r.crew.length} crew</span></div>
               <strong>{banner.title}</strong>
-              <span>{banner.sub}</span>
+              <span className="ms-banner-sub">{banner.sub}</span>
             </div>
           )}
           {riding && <div className="ms-tapnote">tap the sky to eject</div>}
@@ -691,7 +692,7 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
                 )}
                 {r.crew.map(c => (
                   <li key={c.friend.id} className={`st-${c.status}`}>
-                    <img src={avatar(`c${c.friend.id}`, c.friend.frames[0], c.status === "burned" ? "#ff7b39" : "#f4f1e8")} alt="" className="ms-av" style={{ borderColor: FAMILY_COLORS[c.friend.familyId] }} />
+                    <img src={avatar(`c${c.friend.id}`, c.friend.frames[0], c.status === "burned" ? "#ED927E" : "#000000")} alt="" className="ms-av" style={{ borderColor: FAMILY_COLORS[c.friend.familyId] }} />
                     <span className="nm">#{c.friend.id}</span>
                     <span className="stk">{fmtRf(c.stake)}</span>
                     <span className="res">
@@ -717,8 +718,8 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
               <h4>Rocket</h4>
               <div className="ms-grid">
                 {SKINS.map(s => (
-                  <button key={s.id} type="button" className={`ms-item ${skin === s.id ? "eq" : ""}`} onClick={() => buy("skin", s.id, s.price)}>
-                    <span className="sw" style={{ background: `linear-gradient(90deg, ${s.body} 0 55%, ${s.shade} 55% 70%, ${s.trim} 70% 85%, ${s.nose} 85%)` }} />
+                  <button key={s.id} type="button" className={`ms-item ${skin === s.id ? "eq" : ""} ${confirmBuy === s.id ? "confirm" : ""}`} onClick={() => buy("skin", s.id, s.price)}>
+                    <span className="sw" style={{ background: `linear-gradient(90deg, ${s.body} 0 60%, ${s.trim} 60% 80%, ${s.nose} 80%)` }} />
                     <span className="nm">{s.name}</span>
                     <span className="pr">{skin === s.id ? "equipped" : owned.has(s.id) ? "equip" : confirmBuy === s.id ? `burn ${s.price} RF?` : `${s.price} RF`}</span>
                   </button>
@@ -727,8 +728,8 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
               <h4>Exhaust trail</h4>
               <div className="ms-grid">
                 {TRAILS.map(t => (
-                  <button key={t.id} type="button" className={`ms-item ${trail === t.id ? "eq" : ""}`} onClick={() => buy("trail", t.id, t.price)}>
-                    <span className="sw" style={{ background: `linear-gradient(90deg, ${t.colors.slice(0, 4).join(",")})` }} />
+                  <button key={t.id} type="button" className={`ms-item ${trail === t.id ? "eq" : ""} ${confirmBuy === t.id ? "confirm" : ""}`} onClick={() => buy("trail", t.id, t.price)}>
+                    <span className="sw" style={{ background: `linear-gradient(90deg, ${t.flame[0]} 0 33%, ${t.flame[1]} 33% 66%, ${t.flame[2]} 66%)` }} />
                     <span className="nm">{t.name}</span>
                     <span className="pr">{trail === t.id ? "equipped" : owned.has(t.id) ? "equip" : confirmBuy === t.id ? `burn ${t.price} RF?` : `${t.price} RF`}</span>
                   </button>

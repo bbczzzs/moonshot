@@ -19,6 +19,7 @@
 - **Crashes feed the Launch Pool**, which pays everyone who ejected.
 - **Hangar:** rocket skins and exhaust trails, **100% burned**, cosmetic only.
 - **Auto eject + auto-launch** keep the spend loop running hands-free. A furnace meter tracks RF burned per minute.
+- **Rare Friends house style.** Drawn in the FriendSDK game palette with ink outlines and dither shading, on a floating meadow island, with the SDK frame's paper-and-ink UI.
 - **Real Friends everywhere.** Your pilot is read live with the SDK sprite reader, and the crew are real Generations Friends' on-chain sprites.
 
 Full rules, math, checks and known issues: [`games/moonshot/README.md`](games/moonshot/README.md).
@@ -44,4 +45,4 @@ node test-interaction.mjs 960                       # interaction test (needs: n
 
 ## Credits
 
-All art drawn in code, all audio synthesized (WebAudio). Friend sprites are canonical Rare Friends Generations artwork via FriendSDK. Pixel font: Press Start 2P (OFL).
+All art drawn in code, all audio synthesized (WebAudio). Friend sprites are canonical Rare Friends Generations artwork via FriendSDK. Fonts: Silkscreen, Sometype Mono and Archivo (all SIL OFL, bundled).

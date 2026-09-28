@@ -1,13 +1,14 @@
 /**
- * Hangar cosmetics. Bought with simulated RF and burned 100% — a pure sink
- * with no prize liability. Purely visual: they never touch the crash math.
+ * Hangar cosmetics in the Rare Friends game palette. Bought with simulated RF
+ * and burned 100% — a pure sink with no prize liability. Purely visual: they
+ * never touch the crash math.
  */
 export interface Skin {
   id: string;
   name: string;
   price: number; // RF, 0 = free
   body: string;
-  shade: string;
+  shade: string; // checker-dithered over the body's shadow side
   trim: string;
   nose: string;
   glass: string;
@@ -17,23 +18,24 @@ export interface Trail {
   id: string;
   name: string;
   price: number;
-  colors: string[]; // hot -> cool
+  flame: [string, string, string]; // core, mid, outer
+  sparks: string[];
   shape: "puff" | "heart" | "star";
 }
 
 export const SKINS: Skin[] = [
-  { id: "classic", name: "Classic", price: 0, body: "#efeadf", shade: "#b7b1a5", trim: "#ff5a3c", nose: "#ff5a3c", glass: "#9fe8ff" },
-  { id: "tin", name: "Tin Toy", price: 25, body: "#cdd6de", shade: "#8894a1", trim: "#3d7cf5", nose: "#ffc83a", glass: "#c6f3ff" },
-  { id: "neon", name: "Neon Night", price: 60, body: "#23244a", shade: "#15162e", trim: "#ff3fd8", nose: "#2ee8ff", glass: "#ff9cf0" },
-  { id: "gold", name: "Gold Rush", price: 150, body: "#ffd54a", shade: "#c8951b", trim: "#fff4b8", nose: "#ff9a1a", glass: "#fff8d6" },
-  { id: "void", name: "Void Runner", price: 300, body: "#15151d", shade: "#08080c", trim: "#8f6bff", nose: "#c3b2ff", glass: "#8f6bff" },
+  { id: "classic", name: "Classic", price: 0, body: "#FFFFFF", shade: "#000000", trim: "#ED927E", nose: "#ED927E", glass: "#7DB4DB" },
+  { id: "tin", name: "Tin Toy", price: 25, body: "#7DB4DB", shade: "#000000", trim: "#F2CE68", nose: "#F2CE68", glass: "#FFFFFF" },
+  { id: "neon", name: "Meadow", price: 60, body: "#B9D984", shade: "#000000", trim: "#FFFFFF", nose: "#ED927E", glass: "#F2CE68" },
+  { id: "gold", name: "Gold Rush", price: 150, body: "#F2CE68", shade: "#000000", trim: "#FFFFFF", nose: "#000000", glass: "#CCFF00" },
+  { id: "void", name: "Signal", price: 300, body: "#000000", shade: "#FFFFFF", trim: "#CCFF00", nose: "#CCFF00", glass: "#B3A0D8" },
 ];
 
 export const TRAILS: Trail[] = [
-  { id: "flame", name: "Flame", price: 0, colors: ["#fff7cf", "#ffd23f", "#ff8a2a", "#ff4d2e", "#6b6f86"], shape: "puff" },
-  { id: "signal", name: "Signal Green", price: 40, colors: ["#f2ffd6", "#c8ff5a", "#6dff8a", "#1fcf78", "#2b5c4a"], shape: "puff" },
-  { id: "hearts", name: "Pixel Hearts", price: 80, colors: ["#ffe1f0", "#ff8ac6", "#ff4fa3", "#d42a7c", "#6a2c52"], shape: "heart" },
-  { id: "stardust", name: "Stardust", price: 120, colors: ["#ffffff", "#bfe9ff", "#8fb5ff", "#b48cff", "#4b3f7a"], shape: "star" },
+  { id: "flame", name: "Flame", price: 0, flame: ["#FFFFFF", "#F2CE68", "#ED927E"], sparks: ["#F2CE68", "#ED927E"], shape: "puff" },
+  { id: "signal", name: "Signal Green", price: 40, flame: ["#FFFFFF", "#CCFF00", "#B9D984"], sparks: ["#CCFF00", "#B9D984"], shape: "puff" },
+  { id: "hearts", name: "Pixel Hearts", price: 80, flame: ["#FFFFFF", "#ED927E", "#B3A0D8"], sparks: ["#ED927E", "#B3A0D8"], shape: "heart" },
+  { id: "stardust", name: "Stardust", price: 120, flame: ["#FFFFFF", "#7DB4DB", "#B3A0D8"], sparks: ["#FFFFFF", "#7DB4DB", "#F2CE68"], shape: "star" },
 ];
 
 export const skinById = (id: string) => SKINS.find(s => s.id === id) ?? SKINS[0];

@@ -19,6 +19,10 @@ Landmarks sit at the altitude of their multiplier, so you pass the **Moon at 2x*
 
 **Auto eject** sets a target multiplier. **Auto-launch** re-enters for 5, 10, 25 or 50 rounds, or indefinitely, and stops when the demo balance runs out.
 
+## Look and feel
+
+Moonshot is drawn in the Rare Friends world style and uses the FriendSDK game palette (meadow `#B9D984`, pond `#7DB4DB`, sun `#F2CE68`, coral `#ED927E`, lilac `#B3A0D8`, signal `#CCFF00`) with black ink outlines and checker-dither shading. Friends stay canonical black and white. The launch site is a floating meadow island, like the SDK's own worlds. As the rocket climbs, the sky dithers from white paper into black space. The UI follows the SDK frame: `#eee` paper, `#111` ink, square corners, 1px rules, hard offset shadows, with Silkscreen, Sometype Mono and Archivo type.
+
 ## RF costs, probabilities and rewards
 
 Everything is **simulated demo RF** (1,000 to start) and labelled as such in the UI. No real funds move.
@@ -65,4 +69,4 @@ Controls: **Space** bets, cancels or ejects. **M** toggles sound. Everything als
 
 ## Credits
 
-All scenery, the rocket, planets, particles and UI are drawn in code. All audio is synthesized with WebAudio. Friend sprites are canonical Rare Friends Generations artwork (FriendSDK sprite reader / on-chain registry, see the SDK `NOTICE.md`). Pixel font: Press Start 2P (OFL).
+All scenery, the rocket, planets, particles and UI are drawn in code. All audio is synthesized with WebAudio. Friend sprites are canonical Rare Friends Generations artwork (FriendSDK sprite reader / on-chain registry, see the SDK `NOTICE.md`). Fonts: Silkscreen, Sometype Mono and Archivo (all SIL OFL, bundled).

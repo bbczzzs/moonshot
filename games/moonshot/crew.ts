@@ -16,10 +16,10 @@ export const FAMILY_NAMES = [
   "Hoverer", "Colossus", "Sparkling", "Hollow",
 ] as const;
 
-/** One accent per family, used for seat trim and list chips. */
+/** One Rare Friends game-palette tint per family (seat trim, parachutes, list chips). */
 export const FAMILY_COLORS = [
-  "#e9e4d4", "#b995ff", "#ffb561", "#6dffa6", "#5ce1ff",
-  "#78b6ff", "#ff7a59", "#ffe066", "#a3a8c8",
+  "#B3A0D8", "#7DB4DB", "#F2CE68", "#B9D984", "#ED927E",
+  "#7DB4DB", "#ED927E", "#F2CE68", "#B3A0D8",
 ];
 
 export type SpriteRows = readonly string[];
