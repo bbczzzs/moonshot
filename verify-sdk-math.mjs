@@ -1,14 +1,10 @@
-// Verifies Moonshot's crash math against the design-doc spec by importing the
-// real economy.ts module (single source of truth) and simulating 200,000 rounds.
+// Verifies Moonshot's economy by importing the real economy.ts (single source
+// of truth) and simulating 500,000 launches with a seeded RNG.
+//   node verify-sdk-math.mjs
 import {
-  drawCrashPoint,
-  multiplierAt,
-  crashTimeSeconds,
-  cashOutValue,
-  ONE_RF,
-} from './games/moonshot/economy.ts';
+  drawCrashPoint, multiplierAt, timeToMultiplier, payoutOf, fuelOf, Ledger, ONE_RF,
+} from "./games/moonshot/economy.ts";
 
-// Deterministic RNG so results are reproducible.
 function mulberry32(a) {
   return function () {
     a |= 0; a = (a + 0x6d2b79f5) | 0;
@@ -18,34 +14,37 @@ function mulberry32(a) {
   };
 }
 
-const N = 200000;
+const N = 500_000;
 const rng = mulberry32(1337);
-let instant = 0;
-const strategies = [1.5, 2, 5, 10];
-const sumRet = Object.fromEntries(strategies.map((m) => [m, 0]));
-let winProb2 = 0;
-
+const targets = [1.5, 2, 5, 10];
+const ret = Object.fromEntries(targets.map(m => [m, 0n]));
+const stake = 100n * ONE_RF;
+let instant = 0, fuel = 0n, pool = 0n, paid = 0n;
 for (let i = 0; i < N; i++) {
   const c = drawCrashPoint(rng);
-  if (c === 1.0) instant++;
-  for (const m of strategies) sumRet[m] += c >= m ? m : 0;
-  if (c >= 2) winProb2++;
+  if (c === 1) instant++;
+  const f = fuelOf(stake), riding = stake - f;
+  fuel += f;
+  for (const m of targets) if (m <= c) ret[m] += payoutOf(riding, m);
+  // pool flow for a 2x strategy
+  if (2 <= c) paid += payoutOf(riding, 2) - riding; else pool += riding;
 }
+const pct = v => (Number((v * 100000n) / (BigInt(N) * stake)) / 1000).toFixed(2) + "%";
+console.log(`launches: ${N}`);
+console.log(`instant bust @1.00x: ${(instant / N * 100).toFixed(3)}% (expected ~0.99%)`);
+for (const m of targets) console.log(`eject at ${m}x: return ${pct(ret[m])} of stake (expected 90%)`);
+console.log(`fuel burned: ${pct(fuel)} of volume (expected 10.00%)`);
+console.log(`launch pool (2x strategy): in ${pct(pool)} / out ${pct(paid)} -> zero-sum within noise`);
+console.log(`m(t): 2x at ${timeToMultiplier(2).toFixed(2)}s, 10x at ${timeToMultiplier(10).toFixed(2)}s; m(5s)=${multiplierAt(5).toFixed(3)}`);
 
-console.log(`rounds simulated : ${N}`);
-console.log(`instant-crash rate (C=1.00): ${(instant / N * 100).toFixed(3)}%  (target ~3.000%)`);
-console.log(`P(C >= 2) empirical          : ${(winProb2 / N).toFixed(4)}  (target 0.4850)`);
-for (const m of strategies) {
-  console.log(`mean return, cash-out @${m}x : ${(sumRet[m] / N).toFixed(4)}  (target 0.9700)`);
+const l = new Ledger();
+l.reserve(10n * ONE_RF);
+const bet = l.ignite(10n * ONE_RF);
+const out = l.cashOut(bet, 2);
+if (bet.fuel !== ONE_RF || out !== 18n * ONE_RF) throw new Error("ledger arithmetic mismatch");
+if (!l.buy(25n * ONE_RF) || l.totalBurned !== 26n * ONE_RF) throw new Error("hangar burn mismatch");
+for (const m of targets) {
+  const r = Number((ret[m] * 10000n) / (BigInt(N) * stake)) / 100;
+  if (Math.abs(r - 90) > 0.8) throw new Error(`RTP off at ${m}x: ${r}%`);
 }
-console.log(`time to 2x  : ${crashTimeSeconds(2).toFixed(2)}s (doc: ~6.9s)`);
-console.log(`time to 10x : ${crashTimeSeconds(10).toFixed(2)}s (doc: ~23s)`);
-// Spot-check the growth curve and payout rounding.
-console.log(`m(6.93s)    : ${multiplierAt(100, 6.9315).toFixed(3)} (expect ~2.000)`);
-console.log(`payout 10RF @2.37x: ${cashOutValue(10n * ONE_RF, 2.37) === 23700000000000000000n ? 'ok' : 'MISMATCH'}`);
-
-const ok =
-  Math.abs(instant / N - 0.03) < 0.002 &&
-  strategies.every((m) => Math.abs(sumRet[m] / N - 0.97) < 0.01);
-console.log(ok ? 'PASS: math matches spec' : 'FAIL: math deviates from spec');
-process.exit(ok ? 0 : 1);
+console.log("MATH PASS");

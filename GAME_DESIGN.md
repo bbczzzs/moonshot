@@ -1,5 +1,7 @@
 # MOONSHOT — Game Design Document
 
+> **Note:** this is the original v1 design. The current game (crew launches, 10% fuel burn, Hangar) is documented in [`games/moonshot/README.md`](games/moonshot/README.md).
+
 A crash-style multiplier game for the Rare Friends Vibeathon.
 **Category:** Token Activity · **Approach:** FriendSDK (official path, wallet + Friend selection via SDK)
 

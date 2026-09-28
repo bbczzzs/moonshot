@@ -1,384 +1,509 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { GameComponentProps } from "@rarefriends/friendsdk/runtime";
-import { formatGameAmount } from "@rarefriends/friendsdk/ui";
 import {
   Ledger,
   drawCrashPoint,
   multiplierAt,
-  crashTimeSeconds,
-  cashOutValue,
+  floorMult,
+  payoutOf,
+  parseRf,
+  fmtRf,
+  fuelOf,
   ONE_RF,
+  MIN_STAKE,
   STARTING_BALANCE,
-  type RoundRecord,
+  type Bet,
+  type PlayerStats,
 } from "./economy";
+import { makeCrew, mulberry32, FAMILY_NAMES, FAMILY_COLORS, type CrewMember, type SpriteRows } from "./crew";
+import { SKINS, TRAILS } from "./looks";
 import { MoonshotAudio } from "./audio";
-import { MoonshotScene, type FrameState } from "./scene";
-import { loadFriendPilot, type PilotSprite } from "./pilot";
+import { MoonshotScene, spriteCanvas, type SceneCrew } from "./scene";
+import { loadPilot, type PilotSprite } from "./pilot";
 import "./style.css";
 
-type Phase = "idle" | "countdown" | "flying" | "cashed" | "crashed";
+type Phase = "boarding" | "flying" | "crashed";
+type PlayerStatus = "none" | "riding" | "ejected" | "burned";
+type Tab = "crew" | "hangar" | "stats";
 
-const STAKE_PRESETS = [10n, 25n, 50n, 100n];
-const COUNTDOWN_S = 3;
-const SLOWMO_AT = 5;
+const BOARDING_S = 6;
+const AFTERMATH_S = 3.4;
+const PRESETS = ["5", "10", "25", "50", "100"];
+const MILESTONES: { m: number; label: string }[] = [
+  { m: 2, label: "🌙 Passed the Moon" },
+  { m: 3, label: "🛰 Past the satellites" },
+  { m: 5, label: "🔴 Mars flyby" },
+  { m: 10, label: "🪐 Saturn's rings" },
+  { m: 25, label: "🌌 Into the nebula" },
+  { m: 50, label: "🕳 Black hole slingshot" },
+  { m: 100, label: "🚀 MOONSHOT · 100x" },
+];
 
-const rf = (value: bigint) => `${formatGameAmount(value, 18)} RF`;
+const rf = (v: bigint) => `${fmtRf(v)} RF`;
+
+interface Round {
+  n: number;
+  phase: Phase;
+  phaseT: number;
+  multiplier: number;
+  crashPoint: number;
+  crew: CrewMember[];
+  bet: Bet | null; // player's ignited bet this round
+  status: PlayerStatus;
+  cashedAt: number | null;
+  payout: bigint;
+  milestone: number;
+  fuelBurned: bigint; // everyone's fuel this round
+  pool: bigint; // riding RF lost to the Launch Pool this round
+}
+
+interface World {
+  burned: bigint; // all pilots, this session (simulated)
+  volume: bigint;
+  launches: number;
+  started: number; // ms, for the burn rate
+  perLaunch: number[]; // RF burned by each recent launch (fuel), newest last
+}
+
+interface Toast { id: number; text: string; kind: "good" | "bad" | "info"; }
+
+/** Pixel avatar for list rows (data URL, cached). */
+const avatarCache = new Map<string, string>();
+function avatar(key: string, rows: SpriteRows | undefined, fill = "#f4f1e8"): string {
+  if (!rows) return "";
+  const k = `${key}:${fill}`;
+  let url = avatarCache.get(k);
+  if (!url) {
+    url = spriteCanvas(rows, fill).toDataURL();
+    avatarCache.set(k, url);
+  }
+  return url;
+}
+
+function multClass(m: number): string {
+  if (m < 1.5) return "lo";
+  if (m < 2) return "mid";
+  if (m < 10) return "hi";
+  return "mega";
+}
 
 /**
- * Moonshot — a crash-style multiplier game for the Rare Friends Vibeathon.
+ * Moonshot — a live crash game for the Rare Friends Vibeathon (Token Activity).
  * The SDK runtime supplies wallet connection, Friend selection and the
- * ownership gate. The RF economy here is a simulated demo ledger in game
- * state (labeled as such everywhere); the crash math lives in economy.ts.
+ * ownership gate; every RF amount here is a simulated demo ledger.
  */
 export default function Moonshot({ friendId, client, paused }: GameComponentProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const multRef = useRef<HTMLSpanElement | null>(null);
+  const multRef = useRef<HTMLDivElement | null>(null);
+  const cashRef = useRef<HTMLSpanElement | null>(null);
+  const timerRef = useRef<HTMLSpanElement | null>(null);
   const sceneRef = useRef<MoonshotScene | null>(null);
   const audioRef = useRef<MoonshotAudio | null>(null);
-  const ledgerRef = useRef<Ledger | null>(null);
+  const ledgerRef = useRef(new Ledger());
   const pausedRef = useRef(paused);
-  const epoch = useRef(0);
-  const pilotEpoch = useRef(0);
   const pilotRef = useRef<PilotSprite | null>(null);
-  const stakeInputRef = useRef("10");
+  const randRef = useRef(mulberry32((Date.now() ^ Number(BigInt.asUintN(32, friendId))) >>> 0));
+  const reservedRef = useRef<bigint | null>(null); // stake held for the next launch
+  const worldRef = useRef<World>({ burned: 0n, volume: 0n, launches: 0, started: Date.now(), perLaunch: [] });
+  const autoRef = useRef({ cash: false, cashAt: 2, bet: false, betLeft: 0 as number, stake: 10n * ONE_RF });
+  const roundRef = useRef<Round>(newRound(0));
+  const toastId = useRef(0);
 
-  // Hot-loop mutable state (refs avoid re-render churn at 60fps).
-  const sim = useRef({
-    phase: "idle" as Phase,
-    countdown: 0,
-    flightT: 0,
-    multiplier: 1,
-    crashPoint: 1,
-    stake: 10n * ONE_RF,
-    resultT: 0,
-    cashedAt: null as number | null,
-    lastBeep: 4,
-    slowmoDone: false,
-    slowmoUntil: 0,
-    lastFrame: 0,
-  });
-
-  // UI state (updated on transitions only).
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [balance, setBalance] = useState<bigint>(STARTING_BALANCE);
-  const [stakeInput, setStakeInput] = useState("10");
-  const [message, setMessage] = useState("Simulated demo RF — no real funds move.");
+  const [pilot, setPilot] = useState<PilotSprite | null>(null);
+  const [, setTick] = useState(0);
+  const [stakeText, setStakeText] = useState("10");
+  const [autoCash, setAutoCash] = useState(false);
+  const [autoCashText, setAutoCashText] = useState("2.00");
+  const [autoBet, setAutoBet] = useState(false);
+  const [autoBetRounds, setAutoBetRounds] = useState<number>(10);
   const [history, setHistory] = useState<number[]>([]);
-  const [stats, setStats] = useState(() => new Ledger().stats);
-  const [lastResult, setLastResult] = useState<{ kind: "win" | "burn"; text: string } | null>(null);
+  const [tab, setTab] = useState<Tab>("crew");
+  const [toasts, setToasts] = useState<Toast[]>([]);
   const [muted, setMuted] = useState(true);
-  const [reducedMotion, setReducedMotion] = useState(false);
-  const [slowmoFlash, setSlowmoFlash] = useState(false);
+  const [reduced, setReduced] = useState(false);
+  const [skin, setSkin] = useState("classic");
+  const [trail, setTrail] = useState("flame");
+  const [owned, setOwned] = useState<Set<string>>(() => new Set(["classic", "flame"]));
+  const [confirmBuy, setConfirmBuy] = useState<string | null>(null);
+  const [banner, setBanner] = useState<{ title: string; sub: string; kind: "win" | "burn" | "info" } | null>(null);
+  const [message, setMessage] = useState("");
 
-  const modeLabel = client.mode === "preview" ? "Preview · Demo RF" : "Chain";
+  const rerender = () => setTick(t => (t + 1) % 1_000_000);
 
-  const syncUi = () => {
-    const ledger = ledgerRef.current;
-    if (!ledger) return;
-    setBalance(ledger.balance);
-    setStats({ ...ledger.stats });
-    setPhase(sim.current.phase);
-  };
-
-  // ---- lifecycle ----
-  // The pilot is the player's ACTUAL selected Friend: its canonical on-chain
-  // 16x16 sprite, voxel-rendered in the scene. This never blocks the session
-  // handshake — if the chain read is unavailable, a deterministic generative
-  // pixel pilot is used instead.
-  useEffect(() => {
-    const version = ++pilotEpoch.current;
-    pilotRef.current = null;
-    sceneRef.current?.setPilot(null);
-    loadFriendPilot(friendId).then((pilot) => {
-      if (version !== pilotEpoch.current) return;
-      pilotRef.current = pilot;
-      sceneRef.current?.setPilot(pilot);
-    });
-    return () => {
-      pilotEpoch.current++;
+  function newRound(n: number): Round {
+    return {
+      n, phase: "boarding", phaseT: 0, multiplier: 1, crashPoint: 1,
+      crew: [], bet: null, status: "none", cashedAt: null, payout: 0n, milestone: 0,
+      fuelBurned: 0n, pool: 0n,
     };
+  }
+
+  function toast(text: string, kind: Toast["kind"] = "info") {
+    const id = ++toastId.current;
+    setToasts(t => [...t.slice(-2), { id, text, kind }]);
+    window.setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 2600);
+  }
+
+  // ---- identity + session ----
+  useEffect(() => {
+    let live = true;
+    pilotRef.current = null;
+    setPilot(null);
+    loadPilot(friendId).then(p => {
+      if (!live) return;
+      pilotRef.current = p;
+      setPilot(p);
+      sceneRef.current?.setPilot(p.frames);
+    });
+    return () => { live = false; };
   }, [friendId]);
 
-  // Session handshake first: the runtime only marks the game ready (and hides
-  // its loading state) once the child calls client.read(). This must NOT wait
-  // for the canvas — the canvas only exists after `ready` flips true.
   useEffect(() => {
-    const version = ++epoch.current;
+    let live = true;
     setReady(false);
     setError("");
-    // Required: let the runtime finish its loading state even though the
-    // crash game does not use the chance-game economy actions.
-    void client
-      .read()
-      .then(() => {
-        if (version === epoch.current) setReady(true);
-      })
-      .catch((cause: unknown) => {
-        if (version === epoch.current) {
-          setError(cause instanceof Error ? cause.message : "Could not load the game session.");
-        }
-      });
-    return () => {
-      epoch.current++;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The runtime finishes loading once the child reads its session, even
+    // though Moonshot runs its own simulated ledger rather than chance plays.
+    client.read()
+      .then(() => { if (live) setReady(true); })
+      .catch((cause: unknown) => { if (live) setError(cause instanceof Error ? cause.message : "Could not load the game session."); });
+    return () => { live = false; };
   }, [client, friendId]);
 
-  // Scene + simulation setup. Runs once the canvas exists (after ready).
+  useEffect(() => {
+    pausedRef.current = paused;
+    audioRef.current?.setPaused(paused);
+  }, [paused]);
+
+  useEffect(() => { autoRef.current.cash = autoCash; }, [autoCash]);
+  useEffect(() => {
+    const v = Number(autoCashText);
+    autoRef.current.cashAt = Number.isFinite(v) && v >= 1.01 ? floorMult(v) : 1.01;
+  }, [autoCashText]);
+  useEffect(() => {
+    const s = parseRf(stakeText);
+    if (s !== null) autoRef.current.stake = s;
+  }, [stakeText]);
+  useEffect(() => { sceneRef.current?.setLook(skin, trail); }, [skin, trail]);
+
+  // ---- main loop ----
   useEffect(() => {
     if (!ready) return;
-    let cancelled = false;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const scene = new MoonshotScene(canvas);
     const audio = new MoonshotAudio();
-    const ledger = new Ledger();
     sceneRef.current = scene;
     audioRef.current = audio;
-    ledgerRef.current = ledger;
-    if (pilotRef.current) scene.setPilot(pilotRef.current);
-    sim.current.stake = 10n * ONE_RF;
-    setBalance(ledger.balance);
-    setStats({ ...ledger.stats });
-    setPhase("idle");
-    sim.current.phase = "idle";
-    setLastResult(null);
-    setHistory([]);
+    scene.setLook(skin, trail);
+    if (pilotRef.current) scene.setPilot(pilotRef.current.frames);
 
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const onMotion = () => {
-      const b = mq.matches;
-      setReducedMotion(b);
-      scene.setReducedMotion(b);
-    };
-    onMotion();
-    mq.addEventListener("change", onMotion);
-
+    const applyMotion = () => { setReduced(mq.matches); scene.setReducedMotion(mq.matches); };
+    applyMotion();
+    mq.addEventListener("change", applyMotion);
     const ro = new ResizeObserver(() => scene.resize());
     ro.observe(canvas);
 
+    startBoarding(roundRef.current.n + 1);
+
     let raf = 0;
+    let last = 0;
+    let uiClock = 0;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
-      if (cancelled || pausedRef.current) return;
-      const s = sim.current;
-      let dt = Math.min(0.05, (now - (s.lastFrame || now)) / 1000);
-      s.lastFrame = now;
-
-      if (s.phase === "countdown") {
-        s.countdown -= dt;
-        const n = Math.ceil(s.countdown);
-        if (n < s.lastBeep && n >= 1) {
-          s.lastBeep = n;
-          audio.countdownBeep(n === 1);
-        }
-        if (s.countdown <= 0) {
-          s.phase = "flying";
-          s.flightT = 0;
-          s.multiplier = 1;
-          s.slowmoDone = false;
-          audio.launchRumble();
-          audio.climbStart();
-          scene.addTrauma(0.45);
-          setPhase("flying");
-        }
-      } else if (s.phase === "flying") {
-        const slowmo = now < s.slowmoUntil;
-        const scaled = dt * (slowmo ? 0.35 : 1);
-        s.flightT += scaled;
-        s.multiplier = multiplierAt(s.crashPoint, s.flightT);
-        audio.climbSet(s.multiplier);
-        if (multRef.current) {
-          multRef.current.textContent = `${s.multiplier.toFixed(2)}x`;
-          multRef.current.style.color = s.multiplier < 2 ? "#38e1ff" : s.multiplier < 5 ? "#ffd23f" : "#ff6a4d";
-        }
-        if (!s.slowmoDone && s.multiplier >= SLOWMO_AT) {
-          s.slowmoDone = true;
-          s.slowmoUntil = now + 650;
-          setSlowmoFlash(true);
-          window.setTimeout(() => {
-            if (!cancelled) setSlowmoFlash(false);
-          }, 700);
-        }
-        if (s.flightT >= crashTimeSeconds(s.crashPoint)) {
-          doCrash();
-        }
-      } else if (s.phase === "cashed" || s.phase === "crashed") {
-        s.resultT += dt;
-      }
-
-      const frame: FrameState = {
-        phase: s.phase,
-        countdown: Math.max(0, s.countdown),
-        flightT: s.flightT,
-        multiplier: s.multiplier,
-        crashPoint: s.crashPoint,
-        resultT: s.resultT,
-        cashedAt: s.cashedAt,
-      };
-      scene.frame(frame, dt);
+      const dt = Math.min(0.05, (now - (last || now)) / 1000);
+      last = now;
+      if (pausedRef.current) return;
+      step(dt);
+      const r = roundRef.current;
+      const sceneCrew: SceneCrew[] = r.crew
+        .filter(c => c.status === "riding")
+        .map(c => ({ id: c.friend.id, frames: c.friend.frames, familyId: c.friend.familyId, seat: c.seat, joinedT: r.phase === "boarding" ? r.phaseT - c.joinAt : 9 }));
+      scene.frame({
+        phase: r.phase, phaseT: r.phaseT, multiplier: r.multiplier, crew: sceneCrew,
+        playerAboard: r.status === "riding" || (r.phase === "boarding" && reservedRef.current !== null),
+        playerWatching: r.status === "none" && !(r.phase === "boarding" && reservedRef.current !== null),
+      }, dt);
+      paintHud();
+      uiClock += dt;
+      if (uiClock > 0.12) { uiClock = 0; rerender(); }
     };
     raf = requestAnimationFrame(loop);
 
-    const onKey = (event: KeyboardEvent) => {
-      if (event.code !== "Space") return;
-      const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-      event.preventDefault();
-      if (pausedRef.current) return;
-      primaryAction();
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      if (e.code === "Space") { e.preventDefault(); if (!pausedRef.current) primary(); }
+      else if (e.key === "m" || e.key === "M") toggleMute();
     };
     window.addEventListener("keydown", onKey);
 
     return () => {
-      cancelled = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
-      mq.removeEventListener("change", onMotion);
+      mq.removeEventListener("change", applyMotion);
       window.removeEventListener("keydown", onKey);
       audio.dispose();
       sceneRef.current = null;
       audioRef.current = null;
-      ledgerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
-  // Mirror the runtime pause flag without tearing down the session: opening a
-  // runtime menu mid-flight must freeze the round, never forfeit the stake.
-  useEffect(() => {
-    pausedRef.current = paused;
-    const audio = audioRef.current;
-    if (audio) audio.setPaused(paused);
-  }, [paused]);
-
-  useEffect(() => {
-    stakeInputRef.current = stakeInput;
-  }, [stakeInput]);
-
-  // ---- actions ----
-  function parseStake(): bigint | null {
-    const n = Math.floor(Number(stakeInputRef.current));
-    if (!Number.isFinite(n) || n < 1) return null;
-    return BigInt(n) * ONE_RF;
-  }
-
-  function resetMultDom() {
-    if (multRef.current) {
-      multRef.current.textContent = "1.00x";
-      multRef.current.style.color = "#38e1ff";
+  function startBoarding(n: number) {
+    const r = newRound(n);
+    r.crew = makeCrew(randRef.current, BOARDING_S, Number(friendId));
+    roundRef.current = r;
+    setBanner(null);
+    const auto = autoRef.current;
+    if (auto.bet && reservedRef.current === null) {
+      const ledger = ledgerRef.current;
+      if (auto.betLeft !== 0 && ledger.reserve(auto.stake)) {
+        reservedRef.current = auto.stake;
+        if (auto.betLeft > 0) auto.betLeft -= 1;
+      } else {
+        auto.bet = false;
+        setAutoBet(false);
+        toast(auto.betLeft === 0 ? "Auto-launch finished" : "Auto-launch stopped: not enough demo RF", "info");
+      }
     }
   }
 
-  function launch() {
-    const s = sim.current;
+  function step(dt: number) {
+    const r = roundRef.current;
+    const scene = sceneRef.current!;
+    const audio = audioRef.current!;
     const ledger = ledgerRef.current;
-    const audio = audioRef.current;
-    if (!ledger || !audio || s.phase !== "idle" || pausedRef.current) return;
-    const stake = parseStake();
-    if (stake === null) {
-      setMessage("Enter a stake of at least 1 RF.");
+    r.phaseT += dt;
+
+    if (r.phase === "boarding") {
+      for (const c of r.crew) {
+        if (c.status === "boarding" && r.phaseT >= c.joinAt) {
+          c.status = "riding";
+          scene.boarded(c.seat);
+          audio.tick(500 + c.seat * 40);
+        }
+      }
+      if (r.phaseT >= BOARDING_S) ignite(r);
       return;
     }
-    if (!ledger.stake(stake)) {
-      setMessage(`Not enough demo RF — balance is ${rf(ledger.balance)}.`);
+
+    if (r.phase === "flying") {
+      // The crash point is the highest multiplier reached: ejecting at or
+      // below it wins, so P(win at m) = 1/m exactly.
+      const raw = multiplierAt(r.phaseT);
+      const m = Math.min(raw, r.crashPoint);
+      r.multiplier = m;
+      audio.climbSet(m);
+      // Crew ejections at their targets.
+      for (const c of r.crew) {
+        const at = c.target === null ? Infinity : floorMult(c.target);
+        if (c.status === "riding" && at <= m) {
+          c.status = "ejected";
+          c.cashedAt = at;
+          c.payout = payoutOf(c.riding, at);
+          scene.ejectCrew({ id: c.friend.id, frames: c.friend.frames, familyId: c.friend.familyId, seat: c.seat, joinedT: 9 }, at);
+          audio.eject();
+        }
+      }
+      // Player auto cash-out.
+      const auto = autoRef.current;
+      if (r.status === "riding" && auto.cash && m >= auto.cashAt) cashOut(auto.cashAt);
+      if (raw >= r.crashPoint) {
+        crash(r);
+        return;
+      }
+      // Milestones.
+      const next = MILESTONES[r.milestone];
+      if (next && m >= next.m) {
+        r.milestone += 1;
+        toast(`${next.label} · ${next.m}x`, "good");
+        audio.milestone();
+      }
       return;
     }
-    audio.unlock();
-    audio.tick(520);
-    s.stake = stake;
-    s.crashPoint = drawCrashPoint();
-    s.phase = "countdown";
-    s.countdown = COUNTDOWN_S;
-    s.resultT = 0;
-    s.cashedAt = null;
-    s.lastBeep = 4;
-    s.flightT = 0;
-    s.multiplier = 1;
-    resetMultDom();
-    setLastResult(null);
-    setMessage("Simulated demo RF — no real funds move.");
-    syncUi();
-  }
 
-  function cashOut() {
-    const s = sim.current;
-    const ledger = ledgerRef.current;
-    const audio = audioRef.current;
-    if (!ledger || !audio || s.phase !== "flying" || pausedRef.current) return;
-    const m = multiplierAt(s.crashPoint, s.flightT);
-    const payout = cashOutValue(s.stake, m);
-    const record: RoundRecord = { stake: s.stake, crashPoint: s.crashPoint, cashedAt: m, payout };
-    ledger.settle(record);
-    s.phase = "cashed";
-    s.resultT = 0;
-    s.cashedAt = m;
-    s.multiplier = m;
-    audio.cashOut();
-    const profit = payout - s.stake;
-    setLastResult({ kind: "win", text: `Cashed out ${m.toFixed(2)}x · +${rf(profit)}` });
-    setHistory(h => [s.crashPoint, ...h].slice(0, 12));
-    syncUi();
-  }
-
-  function doCrash() {
-    const s = sim.current;
-    const ledger = ledgerRef.current;
-    const audio = audioRef.current;
-    if (!ledger || !audio || s.phase !== "flying") return;
-    const record: RoundRecord = { stake: s.stake, crashPoint: s.crashPoint, cashedAt: null, payout: 0n };
-    ledger.settle(record);
-    s.phase = "crashed";
-    s.resultT = 0;
-    s.multiplier = s.crashPoint;
-    if (multRef.current) {
-      multRef.current.textContent = `${s.crashPoint.toFixed(2)}x`;
-      multRef.current.style.color = "#ff4d5e";
+    if (r.phase === "crashed" && r.phaseT >= AFTERMATH_S) {
+      startBoarding(r.n + 1);
     }
+  }
+
+  function ignite(r: Round) {
+    const ledger = ledgerRef.current;
+    const audio = audioRef.current!;
+    r.phase = "flying";
+    r.phaseT = 0;
+    r.multiplier = 1;
+    r.crashPoint = drawCrashPoint(randRef.current);
+    // Crew who never made it aboard sit this one out.
+    r.crew = r.crew.filter(c => c.status === "riding");
+    for (const c of r.crew) {
+      r.fuelBurned += c.fuel;
+      worldRef.current.volume += c.stake;
+    }
+    const stake = reservedRef.current;
+    reservedRef.current = null;
+    if (stake !== null) {
+      r.bet = ledger.ignite(stake);
+      r.status = "riding";
+      r.fuelBurned += r.bet.fuel;
+      worldRef.current.volume += stake;
+    }
+    worldRef.current.burned += r.fuelBurned;
+    worldRef.current.launches += 1;
+    worldRef.current.perLaunch = [...worldRef.current.perLaunch, Number(r.fuelBurned * 100n / ONE_RF) / 100].slice(-16);
+    audio.launchRumble();
+    audio.climbStart();
+  }
+
+  function crash(r: Round) {
+    const ledger = ledgerRef.current;
+    const audio = audioRef.current!;
+    const scene = sceneRef.current!;
+    const aboard = r.crew.filter(c => c.status === "riding");
+    for (const c of aboard) { c.status = "burned"; r.pool += c.riding; }
+    const playerAboard = r.status === "riding";
+    if (playerAboard && r.bet) {
+      ledger.crashed(r.bet);
+      r.pool += r.bet.riding;
+      r.status = "burned";
+    }
+    scene.crash(aboard.map(c => ({ id: c.friend.id, frames: c.friend.frames, familyId: c.friend.familyId, seat: c.seat, joinedT: 9 })), playerAboard);
     audio.crash();
-    setLastResult({ kind: "burn", text: `Crashed at ${s.crashPoint.toFixed(2)}x · burned ${rf(s.stake)}` });
-    setHistory(h => [s.crashPoint, ...h].slice(0, 12));
-    syncUi();
+    r.phase = "crashed";
+    r.phaseT = 0;
+    setHistory(h => [r.crashPoint, ...h].slice(0, 14));
+    if (r.status === "burned" && r.bet) {
+      setBanner({ title: `CRASHED @ ${r.crashPoint.toFixed(2)}x`, sub: `Your ride of ${rf(r.bet.riding)} went to the Launch Pool`, kind: "burn" });
+    } else if (r.status === "ejected" && r.bet) {
+      setBanner({ title: `CRASHED @ ${r.crashPoint.toFixed(2)}x`, sub: `You ejected at ${r.cashedAt?.toFixed(2)}x · +${rf(r.payout - r.bet.stake)}`, kind: "win" });
+    } else {
+      setBanner({ title: `CRASHED @ ${r.crashPoint.toFixed(2)}x`, sub: `${aboard.length} of ${r.crew.length} crew still aboard`, kind: "info" });
+    }
   }
 
-  function flyAgain() {
-    const s = sim.current;
-    if (s.phase !== "cashed" && s.phase !== "crashed") return;
-    audioRef.current?.tick(440);
-    s.phase = "idle";
-    s.resultT = 0;
-    s.cashedAt = null;
-    s.multiplier = 1;
-    resetMultDom();
-    setLastResult(null);
-    setPhase("idle");
+  function cashOut(at?: number) {
+    const r = roundRef.current;
+    if (r.phase !== "flying" || r.status !== "riding" || !r.bet || pausedRef.current) return;
+    const m = floorMult(at ?? r.multiplier);
+    if (m < 1.01 || m > r.crashPoint) return;
+    const payout = ledgerRef.current.cashOut(r.bet, m);
+    r.status = "ejected";
+    r.cashedAt = m;
+    r.payout = payout;
+    sceneRef.current?.ejectPlayer(m);
+    audioRef.current?.cashOut();
+    toast(`Ejected at ${m.toFixed(2)}x · ${rf(payout)}`, "good");
+    rerender();
   }
 
-  function primaryAction() {
-    const p = sim.current.phase;
-    if (p === "idle") launch();
-    else if (p === "flying") cashOut();
-    else if (p === "cashed" || p === "crashed") flyAgain();
+  function placeBet() {
+    if (reservedRef.current !== null) return;
+    const stake = parseRf(stakeText);
+    if (stake === null || stake < MIN_STAKE) { setMessage("Stake must be at least 1 RF."); return; }
+    if (!ledgerRef.current.reserve(stake)) { setMessage(`Not enough demo RF — balance ${rf(ledgerRef.current.balance)}.`); return; }
+    reservedRef.current = stake;
+    setMessage("");
+    audioRef.current?.unlock();
+    audioRef.current?.tick(720);
+    rerender();
   }
 
-  const toggleMute = () => {
+  function cancelBet() {
+    const stake = reservedRef.current;
+    if (stake === null) return;
+    ledgerRef.current.refund(stake);
+    reservedRef.current = null;
+    audioRef.current?.tick(360);
+    rerender();
+  }
+
+  function primary() {
+    const r = roundRef.current;
+    if (r.phase === "flying" && r.status === "riding") cashOut();
+    else if (reservedRef.current !== null) cancelBet();
+    else placeBet();
+  }
+
+  function toggleAutoBet() {
+    const auto = autoRef.current;
+    if (autoBet) {
+      auto.bet = false;
+      setAutoBet(false);
+      return;
+    }
+    const stake = parseRf(stakeText);
+    if (stake === null || stake < MIN_STAKE) { setMessage("Set a stake of at least 1 RF first."); return; }
+    auto.stake = stake;
+    auto.bet = true;
+    auto.betLeft = autoBetRounds === 0 ? -1 : autoBetRounds;
+    setAutoBet(true);
+    audioRef.current?.unlock();
+    if (roundRef.current.phase === "boarding" && reservedRef.current === null) {
+      if (ledgerRef.current.reserve(stake)) {
+        reservedRef.current = stake;
+        if (auto.betLeft > 0) auto.betLeft -= 1;
+      }
+    }
+  }
+
+  function toggleMute() {
     const audio = audioRef.current;
-    const next = !muted;
-    setMuted(next);
-    audio?.unlock();
-    audio?.setMuted(next);
-    if (!next) audio?.tick(660);
-  };
+    setMuted(m => {
+      const next = !m;
+      audio?.unlock();
+      audio?.setMuted(next);
+      if (!next) audio?.tick(660);
+      return next;
+    });
+  }
 
-  const toggleMotion = () => {
-    const next = !reducedMotion;
-    setReducedMotion(next);
-    sceneRef.current?.setReducedMotion(next);
-  };
+  function buy(kind: "skin" | "trail", id: string, price: number) {
+    if (owned.has(id)) {
+      if (kind === "skin") setSkin(id); else setTrail(id);
+      audioRef.current?.tick(600);
+      return;
+    }
+    if (confirmBuy !== id) { setConfirmBuy(id); return; }
+    setConfirmBuy(null);
+    const cost = BigInt(price) * ONE_RF;
+    if (!ledgerRef.current.buy(cost)) { toast("Not enough demo RF", "bad"); return; }
+    worldRef.current.burned += cost;
+    setOwned(o => new Set(o).add(id));
+    if (kind === "skin") setSkin(id); else setTrail(id);
+    audioRef.current?.unlock();
+    audioRef.current?.burn();
+    toast(`🔥 Burned ${price} RF · ${kind === "skin" ? "skin" : "trail"} unlocked`, "good");
+  }
+
+  /** Per-frame DOM writes (no React churn). */
+  function paintHud() {
+    const r = roundRef.current;
+    const el = multRef.current;
+    if (el) {
+      if (r.phase === "boarding") {
+        el.textContent = "";
+      } else {
+        const m = r.phase === "crashed" ? r.crashPoint : r.multiplier;
+        el.textContent = `${floorMult(m).toFixed(2)}x`;
+        el.dataset.tone = r.phase === "crashed" ? "crash" : multClass(m);
+      }
+    }
+    if (timerRef.current) timerRef.current.textContent = Math.max(0, BOARDING_S - r.phaseT).toFixed(1);
+    if (cashRef.current && r.bet && r.status === "riding") {
+      cashRef.current.textContent = rf(payoutOf(r.bet.riding, r.multiplier));
+    }
+  }
+
+  const stakePreview = useMemo(() => {
+    const s = parseRf(stakeText);
+    return s === null ? null : { stake: s, fuel: fuelOf(s), riding: s - fuelOf(s) };
+  }, [stakeText]);
 
   // ---- render ----
   if (error) {
@@ -390,129 +515,253 @@ export default function Moonshot({ friendId, client, paused }: GameComponentProp
     );
   }
   if (!ready) {
-    return (
-      <div className="ms-loading" role="status">
-        <p>Fueling the rocket…</p>
-      </div>
-    );
+    return <div className="ms-loading" role="status"><p>Fueling the rocket…</p></div>;
   }
 
-  const canLaunch = phase === "idle" && !paused;
-  const flying = phase === "flying";
+  const r = roundRef.current;
+  const ledger = ledgerRef.current;
+  const st: PlayerStats = ledger.stats;
+  const reserved = reservedRef.current;
+  const world = worldRef.current;
+  const riding = r.phase === "flying" && r.status === "riding";
+  const pilotRows = pilot?.frames[0];
+  const netPl = ledger.balance + (reserved ?? 0n) - STARTING_BALANCE + st.hangarBurned;
+  const crewAboard = r.crew.filter(c => c.status !== "boarding").length;
+  const minutes = Math.max(0.25, (Date.now() - world.started) / 60000);
+  const burnRate = (world.burned * 100n) / BigInt(Math.round(minutes * 100));
+
+  let primaryLabel: ReactNode;
+  let primaryClass = "ms-go";
+  if (riding) {
+    primaryLabel = <><small>CASH OUT</small><span ref={cashRef}>{r.bet ? rf(payoutOf(r.bet.riding, r.multiplier)) : ""}</span></>;
+    primaryClass = "ms-go ms-go-cash";
+  } else if (reserved !== null) {
+    primaryLabel = <><small>{r.phase === "boarding" ? "YOU'RE BOARDING" : "BOOKED FOR NEXT LAUNCH"}</small><span>Cancel · {rf(reserved)}</span></>;
+    primaryClass = "ms-go ms-go-booked";
+  } else {
+    primaryLabel = <><small>{r.phase === "boarding" ? "JOIN THIS LAUNCH" : "BOOK NEXT LAUNCH"}</small><span>Bet {stakePreview ? rf(stakePreview.stake) : "—"}</span></>;
+  }
 
   return (
-    <section className={reducedMotion ? "ms-root ms-reduced-motion" : "ms-root"} aria-label="Moonshot" aria-busy={paused}>
-      <header className="ms-topbar">
+    <section className={reduced ? "ms-root ms-reduced" : "ms-root"} aria-label="Moonshot" aria-busy={paused}>
+      <header className="ms-top">
         <div className="ms-brand">
-          <span className="ms-logo" aria-hidden="true">🚀</span>
+          <span className="ms-logo" aria-hidden="true">▲</span>
           <strong>MOONSHOT</strong>
-          <span className="ms-mode">{modeLabel}</span>
+          <span className="ms-demo" title="All RF in this preview is simulated">DEMO RF</span>
         </div>
-        <div className="ms-top-actions">
-          <span className="ms-pilot" title="Verified selected Friend">Pilot · Friend #{friendId.toString()}</span>
-          <button type="button" aria-pressed={!muted} onClick={toggleMute} title="Toggle sound">
-            {muted ? "🔇" : "🔊"}
-          </button>
-          <button type="button" aria-pressed={reducedMotion} onClick={toggleMotion} title="Reduce motion">
-            {reducedMotion ? "◐" : "◑"}
-          </button>
+        <div className="ms-hist" aria-label="Recent crash points">
+          {history.length === 0 && <span className="ms-hist-empty">first launch incoming…</span>}
+          {history.map((c, i) => <span key={`${history.length - i}`} className={`ms-hp ms-${multClass(c)}`}>{c.toFixed(2)}x</span>)}
+        </div>
+        <div className="ms-furnace" title="RF burned this session by every pilot (simulated): fuel + hangar">
+          <span className="ms-flame" aria-hidden="true" />
+          <span className="ms-furnace-label">BURNED</span>
+          <strong>{fmtRf(world.burned)}</strong>
+        </div>
+        <div className="ms-bal"><span>BALANCE</span><strong>{fmtRf(ledger.balance)}</strong></div>
+        <div className="ms-icons">
+          <button type="button" aria-pressed={!muted} aria-label={muted ? "Sound on" : "Sound off"} onClick={toggleMute}>{muted ? "🔇" : "🔊"}</button>
+          <button type="button" aria-pressed={reduced} aria-label="Reduce motion" title="Reduce motion"
+            onClick={() => { const n = !reduced; setReduced(n); sceneRef.current?.setReducedMotion(n); }}>{reduced ? "◐" : "◑"}</button>
         </div>
       </header>
 
-      <div className="ms-stage">
-        <canvas ref={canvasRef} className="ms-canvas" onClick={() => flying && cashOut()} />
-        <div className="ms-mult-wrap" aria-live="polite">
-          <span ref={multRef} className="ms-mult">1.00x</span>
-          {slowmoFlash && <span className="ms-slowmo">5x — HOLD ON!</span>}
-        </div>
-        <div className="ms-balances">
-          <span>Balance · <strong>{rf(balance)}</strong></span>
-          <span className="ms-burned" key={stats.totalBurned.toString()}>🔥 Burned · <strong>{rf(stats.totalBurned)}</strong></span>
-        </div>
-      </div>
-
-      <div className="ms-controls">
-        {phase === "idle" && (
-          <>
-            <div className="ms-stakes" role="group" aria-label="Stake amount in RF">
-              {STAKE_PRESETS.map(v => {
-                const n = v.toString();
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    className={stakeInput === n ? "ms-chip ms-chip-active" : "ms-chip"}
-                    disabled={paused}
-                    onClick={() => { setStakeInput(n); audioRef.current?.tick(600); }}
-                  >
-                    {n}
-                  </button>
-                );
-              })}
-              <input
-                className="ms-stake-input"
-                inputMode="numeric"
-                aria-label="Custom stake in RF"
-                value={stakeInput}
-                disabled={paused}
-                onChange={e => setStakeInput(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
-              />
+      <div className="ms-main">
+        <aside className="ms-bet" aria-label="Your bet">
+          <div className="ms-pilot">
+            {pilotRows && <img src={avatar("me", pilotRows)} alt="" className="ms-av ms-av-lg" />}
+            <div>
+              <strong>Friend #{friendId.toString()}</strong>
+              <span>{pilot ? `${FAMILY_NAMES[pilot.familyId] ?? "Friend"} · pilot${pilot.fallback ? " (art offline)" : ""}` : "loading pilot…"}</span>
             </div>
-            <button type="button" className="ms-primary" disabled={!canLaunch} onClick={launch}>
-              LAUNCH · {stakeInput || "0"} RF
-            </button>
-          </>
-        )}
-        {flying && (
-          <button type="button" className="ms-primary ms-cashout" onClick={cashOut}>
-            CASH OUT
-          </button>
-        )}
-        {(phase === "cashed" || phase === "crashed") && (
-          <button type="button" className="ms-primary" onClick={flyAgain}>
-            FLY AGAIN
-          </button>
-        )}
-        {phase === "countdown" && <div className="ms-wait">Ignition…</div>}
-        {lastResult && (
-          <p role="status" className={lastResult.kind === "win" ? "ms-result ms-win" : "ms-result ms-burn"}>
-            {lastResult.text}
-          </p>
-        )}
-        <p className="ms-message">{message}</p>
-        <p className="ms-hint">Space = launch / cash out · Tap the sky to cash out</p>
-      </div>
+          </div>
 
-      <div className="ms-panels">
-        <div className="ms-panel" aria-label="Recent crash points">
-          <h3>Recent flights</h3>
-          <div className="ms-history">
-            {history.length === 0 && <span className="ms-empty">No flights yet — be the first.</span>}
-            {history.map((c, i) => (
-              <span key={`${i}-${c}`} className={c >= 2 ? "ms-pill ms-pill-green" : "ms-pill ms-pill-red"}>
-                {c.toFixed(2)}x
-              </span>
+          <label className="ms-field">
+            <span>Stake <em>RF</em></span>
+            <div className="ms-stake">
+              <button type="button" aria-label="Halve stake" onClick={() => { const s = parseRf(stakeText); if (s) setStakeText(fmtRf(s / 2n > MIN_STAKE ? s / 2n : MIN_STAKE).replace(/,/g, "")); }}>½</button>
+              <input inputMode="decimal" aria-label="Stake in RF" value={stakeText}
+                onChange={e => setStakeText(e.target.value.replace(/[^0-9.]/g, "").slice(0, 9))} disabled={autoBet} />
+              <button type="button" aria-label="Double stake" onClick={() => { const s = parseRf(stakeText); if (s) setStakeText(fmtRf(s * 2n).replace(/,/g, "")); }}>2×</button>
+            </div>
+          </label>
+          <div className="ms-chips">
+            {PRESETS.map(p => (
+              <button key={p} type="button" className={stakeText === p ? "on" : ""} disabled={autoBet} onClick={() => { setStakeText(p); audioRef.current?.tick(620); }}>{p}</button>
             ))}
           </div>
-        </div>
-        <div className="ms-panel" aria-label="Session stats">
-          <h3>Session activity</h3>
-          <dl className="ms-stats">
-            <div><dt>Rounds</dt><dd>{stats.rounds}</dd></div>
-            <div><dt>Staked</dt><dd>{rf(stats.totalStaked)}</dd></div>
-            <div><dt>Burned</dt><dd>{rf(stats.totalBurned)}</dd></div>
-            <div><dt>Biggest win</dt><dd>{rf(stats.biggestWin)}</dd></div>
-            <div><dt>Best ride</dt><dd>{stats.biggestMultiplier.toFixed(2)}x</dd></div>
-          </dl>
-        </div>
-      </div>
+          {stakePreview && (
+            <p className="ms-fuel">🔥 {fmtRf(stakePreview.fuel)} fuel burns · {fmtRf(stakePreview.riding)} rides</p>
+          )}
 
-      <footer className="ms-foot">
-        <p>
-          Crash point: 3% instant bust · 3% house edge · m(t) = e<sup>0.1t</sup>.
-          All RF is simulated demo RF. Reloading starts a new session.
-        </p>
-      </footer>
+          <button type="button" className={primaryClass} onClick={primary} disabled={paused}>
+            {primaryLabel}
+          </button>
+          {message && <p className="ms-msg" role="status">{message}</p>}
+
+          <div className="ms-auto">
+            <label className="ms-toggle">
+              <input type="checkbox" checked={autoCash} onChange={e => setAutoCash(e.target.checked)} />
+              <span>Auto eject at</span>
+              <input className="ms-mini" inputMode="decimal" aria-label="Auto eject multiplier" value={autoCashText}
+                onChange={e => setAutoCashText(e.target.value.replace(/[^0-9.]/g, "").slice(0, 7))} />
+              <em>x</em>
+            </label>
+            <div className="ms-toggle">
+              <button type="button" className={autoBet ? "ms-autobet on" : "ms-autobet"} onClick={toggleAutoBet} aria-pressed={autoBet}>
+                {autoBet ? "■ Stop auto-launch" : "▶ Auto-launch"}
+              </button>
+              <select aria-label="Auto-launch rounds" value={autoBetRounds} disabled={autoBet}
+                onChange={e => setAutoBetRounds(Number(e.target.value))}>
+                {[5, 10, 25, 50].map(n => <option key={n} value={n}>{n} rounds</option>)}
+                <option value={0}>∞</option>
+              </select>
+            </div>
+            {autoBet && <p className="ms-autonote">{autoRef.current.betLeft < 0 ? "Launching every round" : `${autoRef.current.betLeft} more launches queued`}</p>}
+          </div>
+          <div className="ms-burncard" aria-label="Burn meter">
+            <div className="ms-burnhead">
+              <span className="ms-flame" aria-hidden="true" />
+              <span>FURNACE</span>
+              <em>{fmtRf(burnRate)} RF/min</em>
+            </div>
+            <strong>{fmtRf(world.burned)} <small>RF burned</small></strong>
+            <div className="ms-bars" aria-hidden="true">
+              {Array.from({ length: 16 }, (_, i) => {
+                const v = world.perLaunch[world.perLaunch.length - 16 + i];
+                const max = Math.max(1, ...world.perLaunch);
+                return <span key={i} style={{ height: v === undefined ? "2px" : `${Math.max(3, (v / max) * 100)}%` }} className={v === undefined ? "e" : ""} />;
+              })}
+            </div>
+            <p>Fuel per launch · all pilots · simulated</p>
+          </div>
+          <p className="ms-keys">Space: bet / eject · M: sound</p>
+        </aside>
+
+        <div className="ms-stage">
+          <canvas ref={canvasRef} className="ms-canvas" onPointerDown={() => { if (riding) cashOut(); }} />
+          <div className="ms-hud">
+            {r.phase === "boarding" ? (
+              <div className="ms-count">
+                <small>LAUNCH IN</small>
+                <span ref={timerRef}>{Math.max(0, BOARDING_S - r.phaseT).toFixed(1)}</span>
+                <small>{crewAboard} crew aboard{reserved !== null ? " + you" : ""}</small>
+              </div>
+            ) : (
+              <div ref={multRef} className="ms-mult" data-tone="lo" aria-live="off">1.00x</div>
+            )}
+            <div className="ms-toasts" aria-live="polite">
+              {toasts.map(t => <div key={t.id} className={`ms-toast ms-toast-${t.kind}`}>{t.text}</div>)}
+            </div>
+          </div>
+          {banner && r.phase === "crashed" && (
+            <div className={`ms-banner ms-banner-${banner.kind}`} role="status">
+              <strong>{banner.title}</strong>
+              <span>{banner.sub}</span>
+            </div>
+          )}
+          {riding && <div className="ms-tapnote">tap the sky to eject</div>}
+        </div>
+
+        <aside className="ms-side">
+          <div className="ms-tabs" role="tablist">
+            {(["crew", "hangar", "stats"] as Tab[]).map(t => (
+              <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
+                {t === "crew" ? `Crew ${r.crew.length + (r.bet || reserved !== null ? 1 : 0)}` : t === "hangar" ? "Hangar" : "Stats"}
+              </button>
+            ))}
+          </div>
+
+          {tab === "crew" && (
+            <div className="ms-panel">
+              <ul className="ms-crew">
+                {(r.bet || reserved !== null) && (
+                  <li className={`me st-${r.status === "none" ? "booked" : r.status}`}>
+                    {pilotRows && <img src={avatar("me", pilotRows)} alt="" className="ms-av" />}
+                    <span className="nm">You</span>
+                    <span className="stk">{rf(r.bet?.stake ?? reserved ?? 0n)}</span>
+                    <span className="res">
+                      {r.status === "ejected" && `${r.cashedAt?.toFixed(2)}x`}
+                      {r.status === "burned" && "BURN"}
+                      {r.status === "riding" && "aboard"}
+                      {r.status === "none" && "boarding"}
+                    </span>
+                  </li>
+                )}
+                {r.crew.map(c => (
+                  <li key={c.friend.id} className={`st-${c.status}`}>
+                    <img src={avatar(`c${c.friend.id}`, c.friend.frames[0], c.status === "burned" ? "#ff7b39" : "#f4f1e8")} alt="" className="ms-av" style={{ borderColor: FAMILY_COLORS[c.friend.familyId] }} />
+                    <span className="nm">#{c.friend.id}</span>
+                    <span className="stk">{fmtRf(c.stake)}</span>
+                    <span className="res">
+                      {c.status === "boarding" && "…"}
+                      {c.status === "riding" && (r.phase === "boarding" ? "seated" : "aboard")}
+                      {c.status === "ejected" && `${c.cashedAt?.toFixed(2)}x`}
+                      {c.status === "burned" && "BURN"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="ms-roundfoot">
+                <div><span>Fuel burned this launch</span><strong>{r.phase === "boarding" ? "—" : rf(r.fuelBurned)}</strong></div>
+                <div><span>Lost to Launch Pool</span><strong>{r.phase === "crashed" ? rf(r.pool) : "—"}</strong></div>
+                <p>Crew are real Generations Friends with simulated stakes.</p>
+              </div>
+            </div>
+          )}
+
+          {tab === "hangar" && (
+            <div className="ms-panel ms-hangar">
+              <p className="ms-hnote">Cosmetics are paid in RF and <b>burned 100%</b>. Looks only — odds never change.</p>
+              <h4>Rocket</h4>
+              <div className="ms-grid">
+                {SKINS.map(s => (
+                  <button key={s.id} type="button" className={`ms-item ${skin === s.id ? "eq" : ""}`} onClick={() => buy("skin", s.id, s.price)}>
+                    <span className="sw" style={{ background: `linear-gradient(90deg, ${s.body} 0 55%, ${s.shade} 55% 70%, ${s.trim} 70% 85%, ${s.nose} 85%)` }} />
+                    <span className="nm">{s.name}</span>
+                    <span className="pr">{skin === s.id ? "equipped" : owned.has(s.id) ? "equip" : confirmBuy === s.id ? `burn ${s.price} RF?` : `${s.price} RF`}</span>
+                  </button>
+                ))}
+              </div>
+              <h4>Exhaust trail</h4>
+              <div className="ms-grid">
+                {TRAILS.map(t => (
+                  <button key={t.id} type="button" className={`ms-item ${trail === t.id ? "eq" : ""}`} onClick={() => buy("trail", t.id, t.price)}>
+                    <span className="sw" style={{ background: `linear-gradient(90deg, ${t.colors.slice(0, 4).join(",")})` }} />
+                    <span className="nm">{t.name}</span>
+                    <span className="pr">{trail === t.id ? "equipped" : owned.has(t.id) ? "equip" : confirmBuy === t.id ? `burn ${t.price} RF?` : `${t.price} RF`}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === "stats" && (
+            <div className="ms-panel ms-stats">
+              <dl>
+                <div><dt>Launches flown</dt><dd>{st.rounds}</dd></div>
+                <div><dt>RF staked</dt><dd>{fmtRf(st.volume)}</dd></div>
+                <div><dt>You burned (fuel)</dt><dd className="fire">{fmtRf(st.fuelBurned)}</dd></div>
+                <div><dt>You burned (hangar)</dt><dd className="fire">{fmtRf(st.hangarBurned)}</dd></div>
+                <div><dt>Ejections</dt><dd>{st.wins} / {st.rounds}</dd></div>
+                <div><dt>Best eject</dt><dd>{st.bestCashout ? `${st.bestCashout.toFixed(2)}x` : "—"}</dd></div>
+                <div><dt>Biggest win</dt><dd>{fmtRf(st.biggestWin)}</dd></div>
+                <div><dt>Net (excl. hangar)</dt><dd className={netPl >= 0n ? "up" : "down"}>{netPl >= 0n ? "+" : ""}{fmtRf(netPl)}</dd></div>
+              </dl>
+              <h4>All pilots this session</h4>
+              <dl>
+                <div><dt>Launches</dt><dd>{world.launches}</dd></div>
+                <div><dt>RF volume</dt><dd>{fmtRf(world.volume)}</dd></div>
+                <div><dt>RF burned</dt><dd className="fire">{fmtRf(world.burned)}</dd></div>
+              </dl>
+              <h4>The math</h4>
+              <p>Every launch burns <b>10% of each stake as fuel</b>. The other 90% rides a fair curve: P(crash ≥ m) = 1/m, so ejecting at any target returns 90% on average. The house keeps nothing; the whole edge is burned. Riders aboard at the crash lose their ride to the Launch Pool, which pays everyone who ejected. m(t) = e<sup>0.12t</sup>.</p>
+              <p className="ms-sim">All RF here is simulated demo RF. Reloading starts a new session.</p>
+            </div>
+          )}
+        </aside>
+      </div>
     </section>
   );
 }

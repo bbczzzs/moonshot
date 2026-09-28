@@ -199,6 +199,61 @@ export class MoonshotAudio {
     slide.stop(t + 1.2);
   }
 
+  /** A crew member ejects: short pop + chirp. */
+  eject(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const t = this.now();
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(900, t);
+    osc.frequency.exponentialRampToValueAtTime(1500, t + 0.06);
+    g.gain.setValueAtTime(0.06, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    osc.connect(g).connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.1);
+  }
+
+  /** A landmark is passed. */
+  milestone(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const t = this.now();
+    [880, 1318.5].forEach((f, i) => {
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = f;
+      const s = t + i * 0.09;
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.exponentialRampToValueAtTime(0.16, s + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, s + 0.3);
+      osc.connect(g).connect(this.master!);
+      osc.start(s);
+      osc.stop(s + 0.32);
+    });
+  }
+
+  /** RF burned in the furnace (hangar purchase): whoosh + low thump. */
+  burn(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const t = this.now();
+    const dur = 0.6;
+    const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.sin((i / data.length) * Math.PI);
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(400, t);
+    filter.frequency.exponentialRampToValueAtTime(2400, t + dur);
+    const g = this.ctx.createGain();
+    g.gain.value = 0.3;
+    noise.connect(filter).connect(g).connect(this.master);
+    noise.start(t);
+  }
+
   /** Freeze/unfreeze all audio when the runtime pauses the game (menus open). */
   setPaused(paused: boolean): void {
     if (!this.ctx) return;
