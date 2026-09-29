@@ -1,6 +1,6 @@
 # Moonshot 🚀
 
-**A live crash game for the Rare Friends Vibeathon (Token Activity).** Your Rare Friend pilots the rocket, a crew of real Generations Friends hitch a ride, and RF burns on every launch: **10% fuel** (20% on Supernova launches), plus **fuel cans**, **Burn for glory** and the **Hangar**. Built with FriendSDK **v0.1.2**.
+**A live crash game for the Rare Friends Vibeathon (Token Activity).** Your Rare Friend pilots the rocket, a crew of real Generations Friends hitch a ride, and RF burns on every launch: **10% fuel** (20% on Supernova launches), plus **fuel cans**, **Burn for glory** and the **Hangar**. Built with FriendSDK **v0.1.4**.
 
 ![Moonshot gameplay](media/moonshot-demo.gif)
 

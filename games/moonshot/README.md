@@ -2,7 +2,7 @@
 
 **A live crash game where your Rare Friend pilots the rocket, a crew of real Generations Friends hitch a ride, and RF burns on every launch.**
 
-Built with FriendSDK **v0.1.2** for the Rare Friends Vibeathon · Category: **Token Activity**
+Built with FriendSDK **v0.1.4** for the Rare Friends Vibeathon · Category: **Token Activity**
 
 ![Moonshot gameplay](../../media/moonshot-demo.gif)
 

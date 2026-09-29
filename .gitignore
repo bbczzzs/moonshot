@@ -4,3 +4,4 @@ node_modules/
 artifacts/
 .friendsdk/
 games/moonshot/.friendsdk/
+dist/
