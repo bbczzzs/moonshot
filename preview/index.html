@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moonshot</title>
+<meta name="description" content="A live crash game for the Rare Friends Vibeathon (Token Activity): your Rare Friend pilots a rocket crewed by real Generations Friends, and RF burns on every launch.">
+<meta property="og:title" content="Moonshot">
+<meta property="og:description" content="Your Rare Friend pilots the rocket. 10% of every stake burns as fuel, win or lose. Rare Friends Vibeathon · Token Activity.">
+<meta property="og:image" content="../media/flight.png">
+<style>
+  @font-face { font-family: "Silkscreen"; src: url("../games/moonshot/fonts/silkscreen-700.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+  @font-face { font-family: "Silkscreen"; src: url("../games/moonshot/fonts/silkscreen-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+  @font-face { font-family: "Sometype Mono"; src: url("../games/moonshot/fonts/sometype-mono.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+  @font-face { font-family: "Archivo"; src: url("../games/moonshot/fonts/archivo.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  :root {
+    --ink: #111; --paper: #eee; --white: #fff; --muted: #555; --rule: #c9c9c9;
+    --signal: #ccff00; --sun: #F2CE68; --coral: #ED927E; --meadow: #B9D984; --pond: #7DB4DB; --lilac: #B3A0D8; --fire: #c2481f;
+    --space: #1d1840; --space-2: #2c2560;
+    --display: "Silkscreen", ui-monospace, monospace; --mono: "Sometype Mono", ui-monospace, monospace; --body: "Archivo", system-ui, sans-serif;
+    --line: 2px solid var(--ink); --drop: 4px 4px 0 var(--ink);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; color: var(--ink); font: 15px/1.55 var(--body);
+    background-color: var(--space);
+    background-image:
+      radial-gradient(1px 1px at 12% 18%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 72% 9%, #fff 50%, transparent 51%),
+      radial-gradient(1px 1px at 40% 42%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 88% 36%, #fff 50%, transparent 51%),
+      radial-gradient(1px 1px at 22% 71%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 61% 83%, #fff 50%, transparent 51%);
+    background-size: 420px 420px;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 56px; }
+  header.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 22px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--white); border: var(--line); box-shadow: 3px 3px 0 var(--ink); font: 12px var(--mono); text-decoration: none; }
+  .brand { font: 700 16px var(--display); letter-spacing: 0.04em; }
+  .chip { font: 700 9px var(--display); background: var(--ink); color: var(--signal); padding: 4px 6px 3px; }
+  .card { background: var(--paper); border: var(--line); box-shadow: 6px 6px 0 var(--ink); }
+  .hero { display: grid; grid-template-columns: 1.35fr 1fr; overflow: hidden; }
+  .hero figure { margin: 0; border-right: var(--line); background: var(--space-2); display: flex; align-items: center; }
+  .hero img { display: block; width: 100%; height: auto; image-rendering: pixelated; border-top: var(--line); border-bottom: var(--line); }
+  .hero .copy { padding: 22px 22px 20px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { margin: 0; font: 700 32px/1.05 var(--display); }
+  .lead { margin: 0; font-size: 16px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 16px; border: var(--line); box-shadow: 3px 3px 0 var(--ink); font: 700 13px var(--display); text-decoration: none; background: var(--white); transition: transform 80ms steps(2, end), box-shadow 80ms steps(2, end); }
+  .btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--ink); }
+  .btn:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+  .btn.go { background: var(--signal); }
+  .small { font: 12px/1.5 var(--mono); color: var(--muted); margin: 0; }
+  section { margin-top: 30px; }
+  h2 { display: inline-block; margin: 0 0 14px; padding: 6px 10px 5px; font: 700 15px var(--display); background: var(--white); border: var(--line); box-shadow: 3px 3px 0 var(--ink); }
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .step { padding: 14px; background: var(--white); border: var(--line); box-shadow: var(--drop); }
+  .step b { display: grid; place-items: center; width: 26px; height: 26px; margin-bottom: 8px; font: 700 13px var(--display); background: var(--ink); color: var(--signal); }
+  .step h3 { margin: 0 0 4px; font: 700 15px var(--body); }
+  .step p { margin: 0; font-size: 13px; color: var(--muted); }
+  .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .shots figure { margin: 0; background: var(--white); border: var(--line); box-shadow: var(--drop); }
+  .shots img { display: block; width: 100%; height: auto; border-bottom: var(--line); }
+  .shots figcaption { padding: 6px 10px; font: 11px var(--mono); }
+  .econ { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .panel { padding: 16px; background: var(--white); border: var(--line); box-shadow: var(--drop); }
+  .panel h3 { margin: 0 0 10px; font: 700 13px var(--display); }
+  table { width: 100%; border-collapse: collapse; font: 12px var(--mono); }
+  th, td { padding: 6px 6px; border-bottom: 2px dotted var(--rule); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font: 700 9px var(--display); color: var(--muted); letter-spacing: 0.04em; }
+  .flows div { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 2px dotted var(--rule); font: 13px var(--mono); }
+  .flows div:last-child { border-bottom: 0; }
+  .tag { font: 700 11px var(--mono); padding: 1px 6px; border: 2px solid var(--ink); white-space: nowrap; }
+  .burn { background: var(--coral); } .pool { background: var(--pond); } .nova { background: var(--lilac); }
+  .big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+  .big div { padding: 10px; text-align: center; background: var(--paper); border: var(--line); }
+  .big b { display: block; font: 700 20px var(--display); }
+  .big span { font: 11px var(--mono); color: var(--muted); }
+  video { display: block; width: 100%; height: auto; border: var(--line); box-shadow: var(--drop); background: #111; }
+  footer { margin-top: 34px; font: 12px/1.6 var(--mono); }
+  footer .card { padding: 14px 16px; }
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; }
+    .hero figure { border-right: 0; border-bottom: var(--line); }
+    .steps { grid-template-columns: 1fr 1fr; }
+    .shots, .econ { grid-template-columns: 1fr; }
+    h1 { font-size: 26px; }
+  }
+  @media (max-width: 460px) { .steps, .big { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <span class="pill"><span class="brand">MOONSHOT</span><span class="chip">DEMO RF</span></span>
+    <span class="pill">Rare Friends Vibeathon · <b>Token Activity</b> · FriendSDK v0.1.2</span>
+  </header>
+
+  <div class="card hero">
+    <figure><img src="../media/moonshot-demo.gif" alt="Moonshot gameplay: a rocket crewed by Rare Friends climbs past the Moon while the multiplier rises" width="600" height="338"></figure>
+    <div class="copy">
+      <h1>Moonshot</h1>
+      <p class="lead">A live crash game. Your Rare Friend pilots the rocket, a crew of real Generations Friends hitches a ride, and <b>10% of every stake burns as fuel, win or lose</b>. A new launch every ~15 seconds.</p>
+      <div class="cta">
+        <a class="btn go" href="../">Play now ▶</a>
+        <a class="btn" href="#video">Watch the video</a>
+        <a class="btn" href="https://github.com/bbczzzs/moonshot/blob/main/games/moonshot/README.md">Full rules</a>
+      </div>
+      <p class="small">Playing needs a browser wallet on Robinhood mainnet (4663) holding a hardwired Rare Friends Generations NFT (gen ≥ 1), the FriendSDK ownership gate. No transactions: all RF in the game is simulated demo RF.</p>
+    </div>
+  </div>
+
+  <section>
+    <h2>How it plays</h2>
+    <div class="steps">
+      <div class="step"><b>1</b><h3>Board</h3><p>A 6-second window: stake RF and your Friend climbs into the cockpit while the crew walks the gantry.</p></div>
+      <div class="step"><b>2</b><h3>Liftoff</h3><p>10% of every stake burns as fuel. The multiplier climbs past the Moon (2×), Mars (5×) and Saturn (10×).</p></div>
+      <div class="step"><b>3</b><h3>Eject</h3><p>Cash out any time and parachute down with ride × multiplier, or eject half and let the rest fly.</p></div>
+      <div class="step"><b>4</b><h3>Or crash</h3><p>Everyone still aboard burns with the rocket. Crashes feed the Launch Pool that pays the ejectors.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where RF burns</h2>
+    <div class="econ">
+      <div class="panel">
+        <h3>Every sink</h3>
+        <div class="flows">
+          <div><span>Fuel, every launch, every pilot</span><span class="tag burn">10% of stake burned</span></div>
+          <div><span>Supernova launches (every 300 RF burned)</span><span class="tag nova">20% burned</span></div>
+          <div><span>Fuel cans thrown at riders</span><span class="tag burn">1 RF, 100% burned</span></div>
+          <div><span>Burn for glory (optional, 3× XP)</span><span class="tag burn">10% of payout</span></div>
+          <div><span>Hangar skins and trails</span><span class="tag burn">100% burned</span></div>
+          <div><span>Crashed rides</span><span class="tag pool">Launch Pool → ejectors</span></div>
+        </div>
+        <p class="small" style="margin-top:10px">The house keeps nothing: the fuel burn is the whole edge. The Flames tab reads the live $RAREFRIENDS supply from Robinhood chain (read-only) and shows your burn as a share of it.</p>
+      </div>
+      <div class="panel">
+        <h3>Fair math, verified · 500,000 launches</h3>
+        <table>
+          <thead><tr><th>Eject target</th><th>Return</th><th>Expected</th></tr></thead>
+          <tbody>
+            <tr><td>1.5×</td><td>89.97%</td><td>90%</td></tr>
+            <tr><td>2×</td><td>90.08%</td><td>90%</td></tr>
+            <tr><td>5×</td><td>89.99%</td><td>90%</td></tr>
+            <tr><td>10×</td><td>89.68%</td><td>90%</td></tr>
+          </tbody>
+        </table>
+        <p class="small" style="margin-top:8px"><code>P(crash ≥ m) = 1/m</code>: every target returns 90% on average and the other 10% burns. Instant bust 1.00%. Fuel burn measured at exactly 10.00% of volume (<code>node verify-sdk-math.mjs</code>).</p>
+        <div class="big">
+          <div><b>18.7%</b><span>of volume burned (fuel + cans + glory)</span></div>
+          <div><b>75 RF</b><span>burned per player per day</span></div>
+          <div><b>≈137M</b><span>RF a year at 5,000 daily players</span></div>
+        </div>
+        <p class="small" style="margin-top:8px">Projection assumptions: 40 launches a day at 10 RF, 10% Supernovas, a fuel can every other launch, 30% of players using Burn for glory. Illustrative, not measured.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Screens</h2>
+    <div class="shots">
+      <figure><img src="../media/liftoff.png" alt="Liftoff with the crew aboard" loading="lazy"><figcaption>Liftoff: 10% of every stake burns as fuel</figcaption></figure>
+      <figure><img src="../media/flight.png" alt="Flight with fuel cans and eject half" loading="lazy"><figcaption>Flight: fuel cans and eject half</figcaption></figure>
+      <figure><img src="../media/supernova.png" alt="Supernova launch" loading="lazy"><figcaption>Supernova launch: 20% fuel, purple sky</figcaption></figure>
+      <figure><img src="../media/crash.png" alt="The rocket crashes" loading="lazy"><figcaption>Crash: rides still aboard feed the Launch Pool</figcaption></figure>
+      <figure><img src="../media/flames.png" alt="Flames tab with missions and burn receipt" loading="lazy"><figcaption>Flames tab: burn receipt, rank, missions</figcaption></figure>
+      <figure><img src="../media/hangar.png" alt="Hangar with rocket skins" loading="lazy"><figcaption>Hangar: cosmetics, 100% burned</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="video">
+    <h2>Full playthrough</h2>
+    <video src="../media/moonshot-demo.mp4" controls muted playsinline preload="metadata" poster="../media/flight.png"></video>
+  </section>
+
+  <footer>
+    <div class="card">
+      <b>Rare Friends integration:</b> your ownership-verified Friend is the pilot, read live with the SDK sprite reader; the crew are real Generations Friends drawn from their canonical on-chain sprites, never recoloured.
+      <br><a href="https://github.com/bbczzzs/moonshot">Source on GitHub</a> · <a href="https://github.com/bbczzzs/moonshot/blob/main/games/moonshot/README.md">Full rules and checks</a> · Built with FriendSDK v0.1.2. All RF is simulated.
+    </div>
+  </footer>
+</div>
+</body>
+</html>

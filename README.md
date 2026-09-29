@@ -6,6 +6,8 @@
 
 🎮 **Play:** https://bbczzzs.github.io/moonshot/ requires a browser wallet on Robinhood mainnet (4663) holding a hardwired Rare Friends Generations NFT (gen ≥ 1). This is the SDK's standard gate, the same as every SDK entry. All balances are **simulated demo RF**.
 
+👀 **No wallet? Preview page:** https://bbczzzs.github.io/moonshot/preview/ (GIF, video, screens, burn rules and the verified math)
+
 🎬 [Full-quality recording (MP4)](media/moonshot-demo.mp4)
 
 | Liftoff | Flight: cans + eject half | Supernova launch | Flames tab + missions |
